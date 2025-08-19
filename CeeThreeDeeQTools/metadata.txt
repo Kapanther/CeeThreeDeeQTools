@@ -9,11 +9,12 @@ description=A suite of handy QGIS tools for Civil/Geo Engineers and Designers
 version=0.1
 author=CeeThreeDee
 email=info@ceethreedee.com
+#icon=Assets/img/CTD_logo.png
 
 about=A suite of tools for civil/geo engineers and designers, including 2D/3D transformations, hydro catchment automatiions, reference management export etc..
 
-tracker=http://bugs
-repository=http://repo
+tracker=https://github.com/Kapanther/CeeThreeDeeQTools/issues
+repository=https://github.com/Kapanther/CeeThreeDeeQTools
 # End of mandatory metadata
 
 # Recommended items:

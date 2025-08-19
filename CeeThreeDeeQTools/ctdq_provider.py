@@ -31,9 +31,13 @@ __copyright__ = '(C) 2025 by CeeThreeDee'
 __revision__ = '$Format:%H$'
 
 from qgis.core import QgsProcessingProvider
+from processing.core.ProcessingConfig import ProcessingConfig, Setting
+from PyQt5.QtGui import QIcon
+from .support import ctdtool_info, ctdpaths
 from .ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
 from .ctdq_ExportProjectStylesAsXML import ExportProjectStylesAsXML
+
 
 
 class CTDQProvider(QgsProcessingProvider):
@@ -61,34 +65,13 @@ class CTDQProvider(QgsProcessingProvider):
         # add additional algorithms here
 
     def id(self):
-        """
-        Returns the unique provider id, used for identifying the provider. This
-        string should be a unique, short, character only string, eg "qgis" or
-        "gdal". This string should not be localised.
-        """
         return 'CeeThreeDee Qtools'
 
     def name(self):
-        """
-        Returns the provider name, which is used to describe the provider
-        within the GUI.
-
-        This string should be short (e.g. "Lastools") and localised.
-        """
         return self.tr('CeeThreeDee Qtools')
 
     def icon(self):
-        """
-        Should return a QIcon which is used for your provider inside
-        the Processing toolbox.
-        """
-        return QgsProcessingProvider.icon(self)
+        return QIcon(f'{ctdpaths["img"]}/CTD_logo.png')
 
     def longName(self):
-        """
-        Returns the a longer version of the provider name, which can include
-        extra details such as version numbers. E.g. "Lastools LIDAR tools
-        (version 2.2.1)". This string should be localised. The default
-        implementation returns the same string as name().
-        """
         return self.name()

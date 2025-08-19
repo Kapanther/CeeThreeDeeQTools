@@ -11,9 +11,7 @@
 
 from typing import Any, Optional
 
-from qgis.core import (
-    QgsFeatureSink,
-    QgsProcessing,
+from qgis.core import (    
     QgsProcessingAlgorithm,
     QgsProcessingContext,
     QgsProcessingException,
@@ -25,12 +23,9 @@ from qgis.core import (
     QgsMapLayer,
     Qgis,
     QgsVectorLayerSimpleLabeling,
-    QgsRuleBasedLabeling,
-    QgsPalLayerSettings,
-    QgsSingleBandGrayRenderer,
-    QgsSingleBandPseudoColorRenderer,
+    QgsRuleBasedLabeling
+    
 )
-from qgis import processing
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QScrollArea, QWidget
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
@@ -72,16 +67,10 @@ class ThemeSelectionDialog(QDialog):
     def getSelectedThemes(self):
         return [checkbox.text() for checkbox in self.checkboxes if checkbox.isChecked()]
 
-
 class ExportProjectStylesAsXML(QgsProcessingAlgorithm):
     TOOL_NAME = "ExportProjectStylesAsXML"
-    """
-    Export all QGIS style information to an XML report.
-    """
 
-    # Constants used to refer to parameters and outputs. They will be
-    # used when calling the algorithm from another algorithm, or when
-    # calling from the QGIS console.
+    # PARAMETERS #
 
     OUTPUT = "OUTPUT"  # Update this constant to reflect XML output
     THEMES = "THEMES"  # Reintroduce this constant
@@ -99,11 +88,6 @@ class ExportProjectStylesAsXML(QgsProcessingAlgorithm):
         return ctdtool_info[self.TOOL_NAME]["group_id"]
 
     def shortHelpString(self) -> str:
-        """
-        Returns a localised short helper string for the algorithm. This string
-        should provide a basic description about what the algorithm does and the
-        parameters and outputs associated with it.
-        """
         return "Exports all the QGIS style information to a report."
 
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
