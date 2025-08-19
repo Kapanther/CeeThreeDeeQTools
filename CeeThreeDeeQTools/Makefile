@@ -40,7 +40,7 @@ SOURCES = \
 	__init__.py \
 	ctdq.py 
 
-PLUGINNAME = ctdq
+PLUGINNAME = ceethreedeeqtools
 
 PY_FILES = \
 	__init__.py \

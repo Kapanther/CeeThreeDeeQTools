@@ -34,8 +34,11 @@ import os
 import sys
 import inspect
 
-from qgis.core import QgsProcessingAlgorithm, QgsApplication
+from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
+from PyQt5.QtWidgets import QAction
+from PyQt5.QtGui import QIcon, QDesktopServices
+from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -45,16 +48,79 @@ if cmd_folder not in sys.path:
 
 class CTDQPlugin(object):
 
-    def __init__(self):
-        self.provider = None
+    def __init__(self, iface):
+        """Constructor.
+
+        :param iface: An interface instance that will be passed to this class
+            which provides the hook by which you can manipulate the QGIS
+            application at run time.
+        :type iface: QgsInterface
+        """
+        # Save reference to the QGIS interface
+        self.iface = iface
+        self.provider = CTDQProvider()
+        # initialize plugin directory
+        self.plugin_dir = os.path.dirname(__file__)
+        # initialize locale
+        locale = QSettings().value("locale/userLocale")[0:2]
+        locale_path = os.path.join(self.plugin_dir, "i18n", f"CeeThreeDeeQTOOLS_{locale}.qm")
+
+        if os.path.exists(locale_path):
+            self.translator = QTranslator()
+            self.translator.load(locale_path)
+
+            if Qgis.QGIS_VERSION_INT > 40303:
+                QCoreApplication.installTranslator(self.translator)
 
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
         self.provider = CTDQProvider()
         QgsApplication.processingRegistry().addProvider(self.provider)
 
+    def tr(self, message):
+        """Get the translation for a string using Qt translation API.
+
+        We implement this ourselves since we do not inherit QObject.
+
+        :param message: String for translation.
+        :type message: str, QString
+
+        :returns: Translated version of message.
+        :rtype: QString
+        """
+        # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
+        return QCoreApplication.translate("CeeThreeDeeQTools", message)
+
     def initGui(self):
         self.initProcessing()
 
+        # Create action that will start plugin help
+        self.helpAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),            
+            self.tr("CeeThreeDee Qtools"),
+            self.iface.mainWindow(),
+        )
+        if Qgis.QGIS_VERSION_INT < 31000:
+            self.iface.addPluginToMenu("&Ceethreedee Qtools", self.helpAction)
+        else:
+            self.iface.pluginHelpMenu().addAction(self.helpAction)
+
+        # Connect the action to the docs method
+        self.helpAction.triggered.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://github.com/Kapanther/CeeThreeDeeQTools")
+            )
+        )
+
     def unload(self):
+        """
+        Unloads the plugin and removes the provider from the processing registry.
+        """
         QgsApplication.processingRegistry().removeProvider(self.provider)
+
+        if Qgis.QGIS_VERSION_INT < 31000:
+            self.iface.removePluginMenu("&CeeThreeDeeQTools", self.helpAction)
+        else:
+            self.iface.pluginHelpMenu().removeAction(self.helpAction)
+
+        del self.helpAction

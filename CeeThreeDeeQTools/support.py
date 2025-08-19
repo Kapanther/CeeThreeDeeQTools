@@ -23,6 +23,14 @@ ctdtool_info = {
         "group_id": ctdgroup_info[2]["group_id"]
     }
 }
+
+def get_plugin_dir():
+    """
+    Returns the plugin directory. This function should be called with
+    self.plugin_dir from the provider or plugin class.
+    """
+    return os.path.dirname(os.path.dirname(__file__))
+
 ctdpaths = {  
-    "img": f"{Path(os.path.split(os.path.split(os.path.dirname(__file__))[0])[0]).as_posix()}/assets/img/"
+    "img": os.path.join(get_plugin_dir(), "assets", "img")
 }

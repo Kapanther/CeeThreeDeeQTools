@@ -36,4 +36,4 @@ def classFactory(iface):  # pylint: disable=invalid-name
     """
     #
     from .ctdq import CTDQPlugin
-    return CTDQPlugin()
+    return CTDQPlugin(iface)

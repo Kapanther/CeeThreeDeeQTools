@@ -33,11 +33,12 @@ __revision__ = '$Format:%H$'
 from qgis.core import QgsProcessingProvider
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
-from .support import ctdtool_info, ctdpaths
+from PyQt5.QtCore import QFileInfo
+from .support import ctdtool_info, ctdpaths, get_plugin_dir
 from .ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
 from .ctdq_ExportProjectStylesAsXML import ExportProjectStylesAsXML
-
+import os
 
 
 class CTDQProvider(QgsProcessingProvider):
@@ -54,6 +55,15 @@ class CTDQProvider(QgsProcessingProvider):
         should be implemented here.
         """
         pass
+    def load(self):
+        """
+        Loads the provider with its settings.
+        """
+        ProcessingConfig.settingIcons[self.name()] = self.icon()        
+        ProcessingConfig.addSetting(Setting(self.name(), "CTDTOOLS_ACTIVATED", "Activate", True))
+
+        ProcessingConfig.readSettings()
+        return super().load()
 
     def loadAlgorithms(self):
         """
@@ -71,7 +81,16 @@ class CTDQProvider(QgsProcessingProvider):
         return self.tr('CeeThreeDee Qtools')
 
     def icon(self):
-        return QIcon(f'{ctdpaths["img"]}/CTD_logo.png')
+        """
+        Returns the icon for the provider. Ensures the icon file exists.
+        """
+        #icon_path = os.path.join(ctdpaths["img"], "CTD_logo.png")
+        icon_path = os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")
+        if QFileInfo(icon_path).exists():
+            return QIcon(icon_path)
+        else:
+            # Fallback to a default icon if the file is missing
+            return QIcon()
 
     def longName(self):
         return self.name()
