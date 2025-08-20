@@ -34,10 +34,10 @@ from qgis.core import QgsProcessingProvider
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
-from .support import ctdtool_info, ctdpaths, get_plugin_dir
+from .ctdq_support import ctdtool_info, ctdpaths, get_plugin_dir
 from .ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
-from .ctdq_ExportProjectStylesAsXML import ExportProjectStylesAsXML
+from .ctdq_ExportProjectLayerStyles import ExportProjectLayerStyles
 import os
 
 
@@ -71,7 +71,7 @@ class CTDQProvider(QgsProcessingProvider):
         """
         self.addAlgorithm(ExportDataSourcesMap())
         self.addAlgorithm(GenerateCatchmentsMinArea())
-        self.addAlgorithm(ExportProjectStylesAsXML())
+        self.addAlgorithm(ExportProjectLayerStyles())
         # add additional algorithms here
 
     def id(self):

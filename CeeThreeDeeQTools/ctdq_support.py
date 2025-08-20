@@ -7,8 +7,8 @@ ctdgroup_info = {
     3: {"group": "3D", "group_id": "3d"}
 }
 ctdtool_info = {    
-    "ExportProjectStylesAsXML": {
-        "disp": "Export Project Styles as XML",
+    "ExportProjectLayerStyles": {
+        "disp": "Export Project Layer Styles",
         "group": ctdgroup_info[1]["group"],
         "group_id": ctdgroup_info[1]["group_id"]
     },

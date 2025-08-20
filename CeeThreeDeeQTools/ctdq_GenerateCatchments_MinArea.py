@@ -12,7 +12,7 @@ from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterVectorDestination
 import processing
 from PyQt5.QtCore import QCoreApplication
-from .support import ctdtool_info
+from .ctdq_support import ctdtool_info
 
 
 class GenerateCatchmentsMinArea(QgsProcessingAlgorithm):
