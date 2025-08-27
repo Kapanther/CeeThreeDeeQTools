@@ -36,7 +36,7 @@ import inspect
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
-from PyQt5.QtWidgets import QAction
+from PyQt5.QtWidgets import QAction, QMenu
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator
 
@@ -94,23 +94,36 @@ class CTDQPlugin(object):
     def initGui(self):
         self.initProcessing()
 
-        # Create action that will start plugin help
-        self.helpAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),            
-            self.tr("CeeThreeDee Qtools"),
+        # Create the "CeeThreeDee Qtools" menu
+        self.menu = QMenu(self.tr("CeeThreeDee Qtools"), self.iface.mainWindow())
+        self.iface.mainWindow().menuBar().addMenu(self.menu)
+
+        # Create action for the validation dialog
+        self.validateAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Validate Project Report"),
             self.iface.mainWindow(),
         )
-        if Qgis.QGIS_VERSION_INT < 31000:
-            self.iface.addPluginToMenu("&Ceethreedee Qtools", self.helpAction)
-        else:
-            self.iface.pluginHelpMenu().addAction(self.helpAction)
+        self.validateAction.triggered.connect(self.openValidationDialog)
+        self.menu.addAction(self.validateAction)
 
-        # Connect the action to the docs method
+        # Create action that will start plugin help
+        self.helpAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("CeeThreeDee Qtools Help"),
+            self.iface.mainWindow(),
+        )
         self.helpAction.triggered.connect(
             lambda: QDesktopServices.openUrl(
                 QUrl("https://github.com/Kapanther/CeeThreeDeeQTools")
             )
         )
+        self.menu.addAction(self.helpAction)
+
+    def openValidationDialog(self):
+        from .ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
+        dialog = ValidateProjectReportDialog()
+        dialog.exec_()
 
     def unload(self):
         """
@@ -118,9 +131,11 @@ class CTDQPlugin(object):
         """
         QgsApplication.processingRegistry().removeProvider(self.provider)
 
-        if Qgis.QGIS_VERSION_INT < 31000:
-            self.iface.removePluginMenu("&CeeThreeDeeQTools", self.helpAction)
-        else:
-            self.iface.pluginHelpMenu().removeAction(self.helpAction)
+        # Remove the "CeeThreeDee Qtools" menu and its actions
+        if self.menu:
+            self.menu.clear()
+            self.iface.mainWindow().menuBar().removeAction(self.menu.menuAction())
+            self.menu = None
 
+        del self.validateAction
         del self.helpAction

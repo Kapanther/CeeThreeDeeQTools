@@ -71,7 +71,7 @@ class CTDQProvider(QgsProcessingProvider):
         """
         self.addAlgorithm(ExportDataSourcesMap())
         self.addAlgorithm(GenerateCatchmentsMinArea())
-        self.addAlgorithm(ExportProjectLayerStyles())
+        self.addAlgorithm(ExportProjectLayerStyles())        
         # add additional algorithms here
 
     def id(self):
