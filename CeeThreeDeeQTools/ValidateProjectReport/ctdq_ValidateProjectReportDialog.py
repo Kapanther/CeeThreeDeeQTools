@@ -3,8 +3,19 @@ import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsProject
 import traceback  # Import traceback for detailed error information
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QDesktopServices
 import os
+
+class CustomTextBrowser(QTextBrowser):
+    def setSource(self, url: QUrl, type=None):
+        """
+        Override the default behavior of QTextBrowser to prevent clearing the console.
+        """
+        if url.isLocalFile():
+            QDesktopServices.openUrl(url)  # Open the local file in the default application
+        else:
+            super().setSource(url, type)
 
 class ValidateProjectReportDialog(QDialog):
     def __init__(self, parent=None):
@@ -144,9 +155,9 @@ class ValidateProjectReportDialog(QDialog):
         report_path_layout.addWidget(browse_report_button)
         layout.addLayout(report_path_layout)
 
-        # Debug console log (use QTextBrowser for clickable links)
-        self.log_console = QTextBrowser(self)
-        self.log_console.setOpenExternalLinks(True)  # Enable clickable links
+        # Debug console log (use CustomTextBrowser for clickable links)
+        self.log_console = CustomTextBrowser(self)
+        self.log_console.setOpenExternalLinks(False)  # Disable automatic handling of external links
         layout.addWidget(QLabel("Console:"))
         layout.addWidget(self.log_console)
 
@@ -263,14 +274,33 @@ class ValidateProjectReportDialog(QDialog):
         except Exception as e:
             self.log_message(f"Failed to save project variable: {group_name}/{key}. Error: {e}")
 
-    def log_message(self, message, is_link=False):
+    def log_message(self, message):
         """
-        Append a message to the debug console log. If `is_link` is True, the message is treated as a clickable link.
+        Append a regular message to the debug console log.
         """
-        if is_link:
-            self.log_console.append(f'<a href="{message}">{message}</a>')
+        self.log_console.append(message)
+        self.log_console.ensureCursorVisible()  # Ensure the console scrolls to the bottom
+
+    def log_message_link(self, message, link):
+        """
+        Append a clickable link to the debug console log.
+        :param message: The display text for the link.
+        :param link: The actual link (file path or URL).
+        """
+        file_url = QUrl.fromLocalFile(link).toString()
+        format_message = message + f" ({link})"
+        self.log_console.append(f'<a href="{file_url}">{format_message}</a>')
+        self.log_console.ensureCursorVisible()  # Ensure the console scrolls to the bottom
+
+    def open_link(self, url: QUrl):
+        """
+        Open the clicked link in the default application.
+        """
+        self.log_console.append(f"DEBUG: Clicked URL: {url.toString()}")  # Debugging log
+        if url.isLocalFile():
+            QDesktopServices.openUrl(url)  # Open the local file in the default application
         else:
-            self.log_console.append(message)
+            self.log_message(f"Invalid link: {url.toString()}")  # Log invalid links for debugging
 
     def browse_excel_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Excel File", "", "Excel files (*.xlsx *.xlsm)")
@@ -668,7 +698,7 @@ class ValidateProjectReportDialog(QDialog):
                 self.log_message(f"DATASOURCES_TOTAL={total_count}")
 
             # Log the clickable link to the report
-            self.log_message(f"Validation report written to: {report_path}", is_link=True)
+            self.log_message_link("Validation report written to:", report_path)
 
             QMessageBox.information(self, "Validation Complete", "Validation report generated successfully.")
         except Exception as e:
