@@ -34,7 +34,7 @@ from qgis.core import QgsProcessingProvider
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
-from .ctdq_support import ctdtool_info, ctdpaths, get_plugin_dir
+from .ctdq_support import ctdprocessing_info, ctdpaths, get_plugin_dir
 from .Processing.ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .Processing.ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
 from .Processing.ctdq_ExportProjectLayerStyles import ExportProjectLayerStyles

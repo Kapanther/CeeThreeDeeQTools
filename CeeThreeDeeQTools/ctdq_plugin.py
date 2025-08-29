@@ -121,7 +121,7 @@ class CTDQPlugin(object):
         self.menu.addAction(self.helpAction)
 
     def openValidationDialog(self):
-        from .ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
+        from .Tools.ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
         dialog = ValidateProjectReportDialog()
         dialog.exec_()
 

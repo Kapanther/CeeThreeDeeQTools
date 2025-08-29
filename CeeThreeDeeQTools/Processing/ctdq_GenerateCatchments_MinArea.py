@@ -12,7 +12,7 @@ from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterVectorDestination
 import processing
 from PyQt5.QtCore import QCoreApplication
-from ..ctdq_support import ctdtool_info
+from ..ctdq_support import ctdprocessing_info
 
 
 class GenerateCatchmentsMinArea(QgsProcessingAlgorithm):
@@ -22,19 +22,22 @@ class GenerateCatchmentsMinArea(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdtool_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdtool_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdtool_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
+    
+    def shortHelpString(self) -> str:
+        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
     
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterRasterLayer('eg', 'EG', defaultValue=None))
-        self.addParameter(QgsProcessingParameterNumber('mincatchsize', 'Min Catch Size', type=QgsProcessingParameterNumber.Double, minValue=1000, maxValue=100000, defaultValue=20000))
-        self.addParameter(QgsProcessingParameterVectorDestination('Streams', 'Streams', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorDestination('Catchments', 'Catchments', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('eg', 'Input Raster', defaultValue=None))
+        self.addParameter(QgsProcessingParameterNumber('mincatchsize', 'Min Catchment Area(Pixels)', type=QgsProcessingParameterNumber.Double, minValue=1000, maxValue=100000, defaultValue=20000))
+        self.addParameter(QgsProcessingParameterVectorDestination('Streams', 'Vector Streams Output', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorDestination('Catchments', 'Vector Catchments Output', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the

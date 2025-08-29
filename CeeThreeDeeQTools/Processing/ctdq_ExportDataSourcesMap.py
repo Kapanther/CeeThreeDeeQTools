@@ -36,7 +36,7 @@ from qgis.core import (
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
-from ..ctdq_support import ctdtool_info
+from ..ctdq_support import ctdprocessing_info
 
 
 class ExportDataSourcesMap(QgsProcessingAlgorithm):
@@ -52,21 +52,16 @@ class ExportDataSourcesMap(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdtool_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdtool_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdtool_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
 
     def shortHelpString(self) -> str:
-        """
-        Returns a localised short helper string for the algorithm. This string
-        should provide a basic description about what the algorithm does and the
-        parameters and outputs associated with it.
-        """
-        return "Exports a layer containing bounding boxes and metadata for all layers in the project."
+        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
 
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
         """
