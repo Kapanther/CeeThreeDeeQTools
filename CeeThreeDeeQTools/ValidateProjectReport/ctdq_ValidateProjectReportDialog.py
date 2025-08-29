@@ -252,6 +252,21 @@ class ValidateProjectReportDialog(QDialog):
         # Restore Case-Sensitive Layer Matching
         self.case_sensitive_checkbox.setChecked(self.get_cached_value("case_sensitive_matching", "False") == "True")
 
+        # Set default report path if not restored from settings
+        cached_report_path = self.get_cached_value("report_path", "")
+        if cached_report_path:
+            self.report_path_edit.setText(cached_report_path)
+        else:
+            qgis_project_path = QgsProject.instance().fileName()
+            if qgis_project_path:
+                project_dir = os.path.dirname(qgis_project_path)
+                project_name = os.path.splitext(os.path.basename(qgis_project_path))[0]
+                default_report_path = os.path.join(project_dir, f"{project_name}_ValidationReport.csv")
+                self.report_path_edit.setText(default_report_path)
+                self.log_message(f"Default report path set to: {default_report_path}")
+            else:
+                self.log_message("No QGIS project loaded. Unable to set default report path.")
+
     def get_cached_value(self, key, default):
         """
         Retrieve a cached value from QGIS project variables.
