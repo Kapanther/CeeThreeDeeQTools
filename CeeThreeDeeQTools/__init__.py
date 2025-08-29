@@ -35,5 +35,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    from .ctdq import CTDQPlugin
+    from .ctdq_plugin import CTDQPlugin
     return CTDQPlugin(iface)

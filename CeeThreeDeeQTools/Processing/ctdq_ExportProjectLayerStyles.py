@@ -31,7 +31,7 @@ from qgis.core import (
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QScrollArea, QWidget
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
-from .ctdq_support import ctdtool_info
+from ..ctdq_support import ctdtool_info
 import os
 
 

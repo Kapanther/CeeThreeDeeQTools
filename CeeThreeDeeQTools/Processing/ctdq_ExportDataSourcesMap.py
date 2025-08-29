@@ -36,7 +36,7 @@ from qgis.core import (
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
-from .ctdq_support import ctdtool_info
+from ..ctdq_support import ctdtool_info
 
 
 class ExportDataSourcesMap(QgsProcessingAlgorithm):
