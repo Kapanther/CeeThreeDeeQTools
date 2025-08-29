@@ -6,6 +6,8 @@ import traceback  # Import traceback for detailed error information
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDesktopServices
 import os
+from urllib.parse import unquote  # Import for decoding URL-encoded characters
+from qgis.gui import QgsCollapsibleGroupBox  # Import QgsCollapsibleGroupBox
 
 class CustomTextBrowser(QTextBrowser):
     def setSource(self, url: QUrl, type=None):
@@ -89,10 +91,15 @@ class ValidateProjectReportDialog(QDialog):
         self.case_sensitive_checkbox.setChecked(False)  # Default to unchecked
         layout.addWidget(self.case_sensitive_checkbox)
 
+        # Verbose Console option
+        self.verbose_console_checkbox = QCheckBox("Verbose Console", self)
+        self.verbose_console_checkbox.setChecked(self.get_cached_value("verbose_console", "False") == "True")
+        layout.addWidget(self.verbose_console_checkbox)
+
         # Collapsible panel for filter categories
-        self.filter_group_box = QGroupBox("Filter Categories")
-        self.filter_group_box.setCheckable(True)
-        self.filter_group_box.setChecked(True)
+        self.filter_group_box = QgsCollapsibleGroupBox(self)
+        self.filter_group_box.setTitle("Filter Categories")
+        self.filter_group_box.setCollapsed(False)  # Default to expanded
         filter_layout = QVBoxLayout(self.filter_group_box)
 
         # First filter category
@@ -155,6 +162,11 @@ class ValidateProjectReportDialog(QDialog):
         report_path_layout.addWidget(browse_report_button)
         layout.addLayout(report_path_layout)
 
+        # Option to generate an HTML report
+        self.generate_html_checkbox = QCheckBox("Generate HTML Report", self)
+        self.generate_html_checkbox.setChecked(False)  # Default to unchecked
+        layout.addWidget(self.generate_html_checkbox)
+
         # Debug console log (use CustomTextBrowser for clickable links)
         self.log_console = CustomTextBrowser(self)
         self.log_console.setOpenExternalLinks(False)  # Disable automatic handling of external links
@@ -181,7 +193,7 @@ class ValidateProjectReportDialog(QDialog):
         enabled = state == Qt.Checked
         self.filter_category_combo.setEnabled(enabled)
         self.filter_category_scroll.setEnabled(enabled)
-        self.log_message(f"First filter category {'enabled' if enabled else 'disabled'}.")
+        self.log_message(f"First filter category {'enabled' if enabled else 'disabled'}.",debug=True)
 
     def toggle_second_filter_category(self, state):
         """
@@ -190,7 +202,7 @@ class ValidateProjectReportDialog(QDialog):
         enabled = state == Qt.Checked
         self.second_filter_category_combo.setEnabled(enabled)
         self.second_filter_category_scroll.setEnabled(enabled)
-        self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.")
+        self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.",debug=True)
 
     def restore_cached_selections(self):
         """
@@ -252,6 +264,12 @@ class ValidateProjectReportDialog(QDialog):
         # Restore Case-Sensitive Layer Matching
         self.case_sensitive_checkbox.setChecked(self.get_cached_value("case_sensitive_matching", "False") == "True")
 
+        # Restore Generate HTML Report option
+        self.generate_html_checkbox.setChecked(self.get_cached_value("generate_html_report", "False") == "True")
+
+        # Restore Verbose Console option
+        self.verbose_console_checkbox.setChecked(self.get_cached_value("verbose_console", "False") == "True")
+
         # Set default report path if not restored from settings
         cached_report_path = self.get_cached_value("report_path", "")
         if cached_report_path:
@@ -263,7 +281,7 @@ class ValidateProjectReportDialog(QDialog):
                 project_name = os.path.splitext(os.path.basename(qgis_project_path))[0]
                 default_report_path = os.path.join(project_dir, f"{project_name}_ValidationReport.csv")
                 self.report_path_edit.setText(default_report_path)
-                self.log_message(f"Default report path set to: {default_report_path}")
+                self.log_message(f"Default report path set to: {default_report_path}",debug=True)
             else:
                 self.log_message("No QGIS project loaded. Unable to set default report path.")
 
@@ -285,14 +303,17 @@ class ValidateProjectReportDialog(QDialog):
         group_name = self.cache_prefix
         try:
             self.project.writeEntry(group_name, key, str(value))  # Save the value as a string
-            self.log_message(f"Saved project variable: {group_name}/{key} = {value}")
+            self.log_message(f"Saved project variable: {group_name}/{key} = {value}",debug=True)
         except Exception as e:
             self.log_message(f"Failed to save project variable: {group_name}/{key}. Error: {e}")
 
-    def log_message(self, message):
+    def log_message(self, message, debug=False):
         """
-        Append a regular message to the debug console log.
+        Append a message to the debug console log.
+        If `debug` is True, the message will only be logged if "Verbose Console" is enabled.
         """
+        if debug and not self.verbose_console_checkbox.isChecked():
+            return  # Skip debug messages if "Verbose Console" is disabled
         self.log_console.append(message)
         self.log_console.ensureCursorVisible()  # Ensure the console scrolls to the bottom
 
@@ -333,7 +354,7 @@ class ValidateProjectReportDialog(QDialog):
             workbook = load_workbook(file_path, data_only=True)
             self.sheet_combo.clear()
             self.sheet_combo.addItems(workbook.sheetnames)
-            self.log_message(f"Worksheets loaded: {', '.join(workbook.sheetnames)}")
+            self.log_message(f"Worksheets loaded: {', '.join(workbook.sheetnames)}",debug=True)
         except Exception as e:
             self.sheet_combo.clear()
             QMessageBox.critical(self, "Error", f"Failed to load worksheets: {e}")
@@ -373,7 +394,7 @@ class ValidateProjectReportDialog(QDialog):
             self.second_filter_category_combo.clear()
             self.second_filter_category_combo.addItems(headers)
 
-            self.log_message(f"Headers populated from row {header_row}: {', '.join(headers)}")
+            self.log_message(f"Headers populated from row {header_row}: {', '.join(headers)}",debug=True)
         except Exception as e:
             self.layer_name_combo.clear()
             self.source_path_combo.clear()
@@ -424,7 +445,7 @@ class ValidateProjectReportDialog(QDialog):
                 checkbox = QCheckBox(category)
                 self.filter_category_layout.addWidget(checkbox)
 
-            self.log_message(f"Filter categories populated: {', '.join(categories)}")
+            self.log_message(f"Filter categories populated: {', '.join(categories)}",debug=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to populate filter categories: {e}")
             self.log_message(f"Error populating filter categories: {e}")
@@ -471,7 +492,7 @@ class ValidateProjectReportDialog(QDialog):
                 checkbox = QCheckBox(category)
                 self.second_filter_category_layout.addWidget(checkbox)
 
-            self.log_message(f"Second filter categories populated: {', '.join(categories)}")
+            self.log_message(f"Second filter categories populated: {', '.join(categories)}",debug=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to populate second filter categories: {e}")
             self.log_message(f"Error populating second filter categories: {e}")
@@ -480,33 +501,33 @@ class ValidateProjectReportDialog(QDialog):
         """
         Clear all widgets from the filter category layout and force a UI update.
         """
-        self.log_message("Clearing filter category layout...")
+        self.log_message("Clearing filter category layout...", debug=True)
         for i in reversed(range(self.filter_category_layout.count())):
             item = self.filter_category_layout.itemAt(i)
             widget = item.widget()
             if widget:
-                self.log_message(f"Removing widget: {widget.text()}")
+                self.log_message(f"Removing widget: {widget.text()}", debug=True)
                 self.filter_category_layout.removeWidget(widget)
                 widget.deleteLater()
         self.filter_category_layout.update()  # Force the layout to update
         self.filter_category_widget.update()  # Force the parent widget to update
-        self.log_message("Filter category layout cleared.")
+        self.log_message("Filter category layout cleared.", debug=True)
 
     def clear_second_filter_category_layout(self):
         """
         Clear all widgets from the second filter category layout and force a UI update.
         """
-        self.log_message("Clearing second filter category layout...")
+        self.log_message("Clearing second filter category layout...", debug=True)
         for i in reversed(range(self.second_filter_category_layout.count())):
             item = self.second_filter_category_layout.itemAt(i)
             widget = item.widget()
             if widget:
-                self.log_message(f"Removing widget: {widget.text()}")
+                self.log_message(f"Removing widget: {widget.text()}", debug=True)
                 self.second_filter_category_layout.removeWidget(widget)
                 widget.deleteLater()
         self.second_filter_category_layout.update()  # Force the layout to update
         self.second_filter_category_widget.update()  # Force the parent widget to update
-        self.log_message("Second filter category layout cleared.")
+        self.log_message("Second filter category layout cleared.", debug=True)
 
     def browse_report_path(self):
         """
@@ -516,7 +537,7 @@ class ValidateProjectReportDialog(QDialog):
         if file_path:
             self.report_path_edit.setText(file_path)
             self.save_cached_value("report_path", file_path)
-            self.log_message(f"Selected validation report path: {file_path}")
+            self.log_message(f"Selected validation report path: {file_path}",debug=True)
 
     def normalize_path(self, path, case_sensitive):
         """
@@ -524,16 +545,32 @@ class ValidateProjectReportDialog(QDialog):
         """
         if not path:
             return ""
-        # Maintain case sensitivity if required
-        normalized = path.strip().replace("\\", "/")
-        if not case_sensitive:
-            normalized = normalized.lower()
-        # Remove redundant slashes
-        while "//" in normalized:
-            normalized = normalized.replace("//", "/")
+
+        # Detect if the path is URL-based (e.g., starts with "file:")
+        if path.lower().startswith("file:"):
+            # Remove the "file:" prefix
+            normalized = path[5:]
+            # Decode URL-encoded characters (e.g., %20 to space)
+            normalized = unquote(normalized)
+            # Remove everything after the ? symbol
+            if "?" in normalized:
+                normalized = normalized.split("?", 1)[0]
+        else:
+            # For non-URL paths, apply standard normalization
+            normalized = path.strip().replace("\\", "/")
+
         # Remove everything after the | symbol
         if "|" in normalized:
             normalized = normalized.split("|", 1)[0]
+
+        # Maintain case sensitivity if required
+        if not case_sensitive:
+            normalized = normalized.lower()
+
+        # Remove redundant slashes
+        while "//" in normalized:
+            normalized = normalized.replace("//", "/")
+
         return normalized
 
     def validate_project(self):
@@ -565,6 +602,8 @@ class ValidateProjectReportDialog(QDialog):
 
         self.save_cached_value("layer_name_delimiter", self.layer_name_delimiter_edit.text())
         self.save_cached_value("case_sensitive_matching", str(self.case_sensitive_checkbox.isChecked()))
+        self.save_cached_value("generate_html_report", str(self.generate_html_checkbox.isChecked()))
+        self.save_cached_value("verbose_console", str(self.verbose_console_checkbox.isChecked()))
         layer_name_delimiter = self.layer_name_delimiter_edit.text()
         case_sensitive_matching = self.case_sensitive_checkbox.isChecked()
 
@@ -616,7 +655,7 @@ class ValidateProjectReportDialog(QDialog):
                         reference_data[normalized_layer_name] = []
                     reference_data[normalized_layer_name].append((normalized_source_path, category, second_category))
 
-            self.log_message(f"Reference data extracted: {reference_data}")
+            self.log_message(f"Reference data extracted: {reference_data}", debug=True)
 
             # Collect validation details
             from datetime import datetime
@@ -634,7 +673,7 @@ class ValidateProjectReportDialog(QDialog):
             layer_name_not_found_count = 0
             total_count = 0
 
-            # Open the report file for writing
+            # Open the report file for writing (CSV)
             with open(report_path, "w", encoding="utf-8") as report_file:
                 # Write the #VALIDATIONDETAILS# section
                 report_file.write("#VALIDATIONDETAILS#\n")
@@ -655,6 +694,7 @@ class ValidateProjectReportDialog(QDialog):
 
                 # Validate against project layers
                 project_layers = QgsProject.instance().mapLayers()
+                html_rows = []  # Collect rows for the HTML report
                 for layer_id, layer in project_layers.items():
                     layer_name = layer.name()
                     layer_source = layer.dataProvider().dataSourceUri()
@@ -663,8 +703,7 @@ class ValidateProjectReportDialog(QDialog):
                     normalized_layer_name = self.normalize_path(layer_name, case_sensitive_matching)
                     if layer_name_delimiter in normalized_layer_name:
                         normalized_layer_name = normalized_layer_name.split(layer_name_delimiter, 1)[0]
-                        #DEBUG log the change to the layer name her for validation
-                        self.log_message(f"Layer name '{layer_name}' normalized to '{normalized_layer_name}' using delimiter '{layer_name_delimiter}'")
+                        self.log_message(f"Layer name '{layer_name}' normalized to '{normalized_layer_name}' using delimiter '{layer_name_delimiter}'", debug=True)
                     normalized_layer_source = self.normalize_path(layer_source, case_sensitive_matching)
 
                     if normalized_layer_name in reference_data:
@@ -687,7 +726,7 @@ class ValidateProjectReportDialog(QDialog):
 
                     # Skip blank lines
                     if not layer_name or not check_result or not normalized_layer_source:
-                        self.log_message(f"Skipping blank line for layer '{layer_name}'")
+                        self.log_message(f"Skipping blank line for layer '{layer_name}'", debug=True)
                         continue
 
                     # Increment total count
@@ -696,7 +735,12 @@ class ValidateProjectReportDialog(QDialog):
                     # Write the validation result to the report
                     report_file.write(f"{layer_name},{check_result},{normalized_layer_source},{reference_source},{category},{second_category}\n")
 
-                    self.log_message(f"Layer '{layer_name}' checked: {check_result}")
+                    # Collect data for the HTML report
+                    html_rows.append(
+                        (layer_name, check_result, normalized_layer_source, reference_source, category, second_category)
+                    )
+
+                    self.log_message(f"Layer '{layer_name}' checked: {check_result}",debug=True)
 
                 # Write the #VALIDATIONSUMMARY# section
                 report_file.write("\n#VALIDATIONSUMMARY#\n")
@@ -712,12 +756,67 @@ class ValidateProjectReportDialog(QDialog):
                 self.log_message(f"DATASOURCES_LAYERNAMENOTFOUND={layer_name_not_found_count}")
                 self.log_message(f"DATASOURCES_TOTAL={total_count}")
 
-            # Log the clickable link to the report
-            self.log_message_link("Validation report written to:", report_path)
+            # Generate HTML report if the option is selected
+            if self.generate_html_checkbox.isChecked():
+                html_report_path = report_path.replace(".csv", ".html")
+                with open(html_report_path, "w", encoding="utf-8") as html_file:
+                    html_file.write("<html><head><title>Validation Report</title>")
+                    html_file.write("<style>")
+                    html_file.write("table { border-collapse: collapse; width: 100%; }")
+                    html_file.write("th, td { border: 1px solid black; padding: 8px; text-align: left; }")
+                    html_file.write("th { background-color: #f2f2f2; }")
+                    html_file.write(".matched { background-color: #d4edda; }")  # Light green
+                    html_file.write(".layernotfound { background-color: #fff3cd; }")  # Light yellow
+                    html_file.write(".wrongsource { background-color: #f8d7da; }")  # Light red
+                    html_file.write("</style>")
+                    html_file.write("</head><body>")
+                    html_file.write("<h1>Validation Report</h1>")
+                    html_file.write("<h2>Validation Details</h2>")
+                    html_file.write(f"<p><b>Report Date:</b> {report_date}</p>")
+                    html_file.write(f"<p><b>Report User:</b> {report_user}</p>")
+                    html_file.write(f"<p><b>QGIS Project Path:</b> {qgis_project_path}</p>")
+                    html_file.write(f"<p><b>Validation Excel File Path:</b> {excel_file}</p>")
+                    html_file.write(f"<p><b>Validation Excel Sheet:</b> {sheet_name}</p>")
+                    html_file.write(f"<p><b>Validation Excel Date Modified:</b> {validation_excel_date_modified}</p>")
+                    html_file.write(f"<p><b>Validation Layer Name Field:</b> {layer_name_field}</p>")
+                    html_file.write(f"<p><b>Validation Source Field:</b> {source_path_field}</p>")
+                    html_file.write(f"<p><b>Validation Filter Categories 1:</b> {validation_filter_categories1}</p>")
+                    html_file.write(f"<p><b>Validation Filter Categories 2:</b> {validation_filter_categories2}</p>")
+                    html_file.write("<h2>Data Source Check</h2>")
+                    html_file.write("<table><tr><th>Layer Name</th><th>Check Result</th><th>Layer Source</th>"
+                                    "<th>Reference Source</th><th>Filter Category</th><th>Second Filter Category</th></tr>")
+                    
+                    for layer_name, check_result, normalized_layer_source, reference_source, category, second_category in html_rows:
+                        result_class = ""
+                        if check_result == "MATCHED":
+                            result_class = "matched"
+                        elif check_result == "LAYERNAMENOTFOUND":
+                            result_class = "layernotfound"
+                        elif check_result == "WRONGSOURCE":
+                            result_class = "wrongsource"
+                        
+                        html_file.write(
+                            f"<tr><td>{layer_name}</td>"
+                            f"<td class='{result_class}'>{check_result}</td>"
+                            f"<td>{normalized_layer_source}</td>"
+                            f"<td>{reference_source}</td>"
+                            f"<td>{category}</td>"
+                            f"<td>{second_category}</td></tr>"
+                        )
+
+                    html_file.write("</table>")
+                    html_file.write("<h2>Validation Summary</h2>")
+                    html_file.write(f"<p><b>Matched:</b> <span style='color: #155724; background-color: #d4edda;'>Matched</span> ({matched_count})</p>")  # Light green
+                    html_file.write(f"<p><b>Wrong Source:</b> <span style='color: #721c24; background-color: #f8d7da;'>Wrong Source</span> ({wrong_source_count})</p>")  # Light red
+                    html_file.write(f"<p><b>Layer Name Not Found:</b> <span style='color: #856404; background-color: #fff3cd;'>Layer Name Not Found</span> ({layer_name_not_found_count})</p>")  # Light yellow
+                    html_file.write(f"<p><b>Total:</b> {total_count}</p>")
+                    html_file.write("</body></html>")
+
+                self.log_message_link("HTML report written to:", html_report_path)
 
             QMessageBox.information(self, "Validation Complete", "Validation report generated successfully.")
         except Exception as e:
             # Capture the traceback details
             tb = traceback.format_exc()
             QMessageBox.critical(self, "Error", f"Validation failed: {e}\n\nDetails:\n{tb}")
-            self.log_message(f"Validation failed: {e}\nTraceback:\n{tb}")
+            self.log_message(f"Validation failed: {e}\nTraceback:\n{tb}", debug=True)
