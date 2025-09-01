@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QVBoxLayout, QToolButton, QFrame, QTextBrowser
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QVBoxLayout, QToolButton, QFrame, QTextBrowser, QProgressDialog
 import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsProject
@@ -103,42 +103,42 @@ class ValidateProjectReportDialog(QDialog):
         filter_layout = QVBoxLayout(self.filter_group_box)
 
         # First filter category
-        self.use_filter_category_checkbox = QCheckBox("Enable First Filter Category", self)
-        self.use_filter_category_checkbox.setChecked(True)
-        self.use_filter_category_checkbox.stateChanged.connect(self.toggle_filter_category)
-        filter_layout.addWidget(self.use_filter_category_checkbox)
+        self.use_filter_category_checkbox1 = QCheckBox("Enable First Filter Category", self)
+        self.use_filter_category_checkbox1.setChecked(True)
+        self.use_filter_category_checkbox1.stateChanged.connect(self.toggle_filter_category1)
+        filter_layout.addWidget(self.use_filter_category_checkbox1)
 
-        self.filter_category_combo = QComboBox(self)
-        self.filter_category_combo.currentIndexChanged.connect(self.populate_filter_categories)
+        self.filter_category_combo1 = QComboBox(self)
+        self.filter_category_combo1.currentIndexChanged.connect(self.populate_filter_categories1)
         filter_layout.addWidget(QLabel("First Filter Category Field:"))
-        filter_layout.addWidget(self.filter_category_combo)
+        filter_layout.addWidget(self.filter_category_combo1)
 
-        self.filter_category_scroll = QScrollArea(self)
-        self.filter_category_scroll.setWidgetResizable(True)
-        self.filter_category_widget = QWidget()
-        self.filter_category_layout = QVBoxLayout(self.filter_category_widget)
-        self.filter_category_scroll.setWidget(self.filter_category_widget)
+        self.filter_category_scroll1 = QScrollArea(self)
+        self.filter_category_scroll1.setWidgetResizable(True)
+        self.filter_category_widget1 = QWidget()
+        self.filter_category_layout1 = QVBoxLayout(self.filter_category_widget1)
+        self.filter_category_scroll1.setWidget(self.filter_category_widget1)
         filter_layout.addWidget(QLabel("Select First Filter Categories:"))
-        filter_layout.addWidget(self.filter_category_scroll)
+        filter_layout.addWidget(self.filter_category_scroll1)
 
         # Second filter category
-        self.use_second_filter_category_checkbox = QCheckBox("Enable Second Filter Category", self)
-        self.use_second_filter_category_checkbox.setChecked(False)
-        self.use_second_filter_category_checkbox.stateChanged.connect(self.toggle_second_filter_category)
-        filter_layout.addWidget(self.use_second_filter_category_checkbox)
+        self.use_filter_category_checkbox2 = QCheckBox("Enable Second Filter Category", self)
+        self.use_filter_category_checkbox2.setChecked(False)
+        self.use_filter_category_checkbox2.stateChanged.connect(self.toggle_filter_category2)
+        filter_layout.addWidget(self.use_filter_category_checkbox2)
 
-        self.second_filter_category_combo = QComboBox(self)
-        self.second_filter_category_combo.currentIndexChanged.connect(self.populate_second_filter_categories)
+        self.filter_category_combo2 = QComboBox(self)
+        self.filter_category_combo2.currentIndexChanged.connect(self.populate_filter_categories2)
         filter_layout.addWidget(QLabel("Second Filter Category Field:"))
-        filter_layout.addWidget(self.second_filter_category_combo)
+        filter_layout.addWidget(self.filter_category_combo2)
 
-        self.second_filter_category_scroll = QScrollArea(self)
-        self.second_filter_category_scroll.setWidgetResizable(True)
-        self.second_filter_category_widget = QWidget()
-        self.second_filter_category_layout = QVBoxLayout(self.second_filter_category_widget)
-        self.second_filter_category_scroll.setWidget(self.second_filter_category_widget)
+        self.filter_category_scroll2 = QScrollArea(self)
+        self.filter_category_scroll2.setWidgetResizable(True)
+        self.filter_category_widget2 = QWidget()
+        self.filter_category_layout2 = QVBoxLayout(self.filter_category_widget2)
+        self.filter_category_scroll2.setWidget(self.filter_category_widget2)
         filter_layout.addWidget(QLabel("Select Second Filter Categories:"))
-        filter_layout.addWidget(self.second_filter_category_scroll)
+        filter_layout.addWidget(self.filter_category_scroll2)
 
         layout.addWidget(self.filter_group_box)
 
@@ -183,91 +183,125 @@ class ValidateProjectReportDialog(QDialog):
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
 
-        # Restore cached selections
-        self.restore_cached_selections()
+        # Show the dialog immediately and restore cached selections in the background
+        self.show()
+        self.restore_cached_selections_with_progress()
 
-    def toggle_filter_category(self, state):
+    def toggle_filter_category1(self, state):
         """
         Enable or disable the first filter category dropdown and scrollable box based on the checkbox state.
         """
         enabled = state == Qt.Checked
-        self.filter_category_combo.setEnabled(enabled)
-        self.filter_category_scroll.setEnabled(enabled)
-        self.log_message(f"First filter category {'enabled' if enabled else 'disabled'}.",debug=True)
+        self.filter_category_combo1.setEnabled(enabled)
+        self.filter_category_scroll1.setEnabled(enabled)
+        self.log_message(f"First filter category {'enabled' if enabled else 'disabled'}.", debug=True)
 
-    def toggle_second_filter_category(self, state):
+    def toggle_filter_category2(self, state):
         """
         Enable or disable the second filter category dropdown and scrollable box based on the checkbox state.
         """
         enabled = state == Qt.Checked
-        self.second_filter_category_combo.setEnabled(enabled)
-        self.second_filter_category_scroll.setEnabled(enabled)
-        self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.",debug=True)
+        self.filter_category_combo2.setEnabled(enabled)
+        self.filter_category_scroll2.setEnabled(enabled)
+        self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.", debug=True)
 
-    def restore_cached_selections(self):
+    def restore_cached_selections_with_progress(self):
         """
-        Restore cached selections and validate them.
+        Restore cached selections and show a progress bar for the process.
+        """
+        tasks = [
+            ("Loading Excel file", self.load_cached_excel_file),
+            ("Loading worksheet", self.load_cached_worksheet),
+            ("Populating headers", self.populate_cached_headers),
+            ("Restoring filter categories", self.restore_cached_filter_categories),
+            ("Restoring other settings", self.restore_other_cached_settings),
+        ]
+
+        progress_dialog = QProgressDialog("Restoring cached selections...", "Cancel", 0, len(tasks), self)
+        progress_dialog.setWindowTitle("Loading")
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+
+        for i, (description, task) in enumerate(tasks):
+            if progress_dialog.wasCanceled():
+                break
+            progress_dialog.setLabelText(description)
+            progress_dialog.setValue(i)
+            task()  # Execute the task
+        progress_dialog.setValue(len(tasks))
+
+    def load_cached_excel_file(self):
+        """
+        Load the cached Excel file path and populate the file edit box.
         """
         excel_file = self.get_cached_value("excel_file", "")
         if excel_file:
             self.excel_file_edit.setText(excel_file)
             self.load_sheets(excel_file)
 
-            cached_sheet = self.get_cached_value("sheet", "")
-            if cached_sheet and cached_sheet in [self.sheet_combo.itemText(i) for i in range(self.sheet_combo.count())]:
-                self.sheet_combo.setCurrentText(cached_sheet)
+    def load_cached_worksheet(self):
+        """
+        Load the cached worksheet and set it in the combo box.
+        """
+        cached_sheet = self.get_cached_value("sheet", "")
+        if cached_sheet and cached_sheet in [self.sheet_combo.itemText(i) for i in range(self.sheet_combo.count())]:
+            self.sheet_combo.setCurrentText(cached_sheet)
 
-                # Populate headers and validate cached fields
-                self.populate_headers()
-                cached_layer_name = self.get_cached_value("layer_name_field", "")
-                cached_source_path = self.get_cached_value("source_path_field", "")
+    def populate_cached_headers(self):
+        """
+        Populate headers and validate cached fields.
+        """
+        self.populate_headers()
+        cached_layer_name = self.get_cached_value("layer_name_field", "")
+        cached_source_path = self.get_cached_value("source_path_field", "")
 
-                if cached_layer_name and cached_layer_name in [self.layer_name_combo.itemText(i) for i in range(self.layer_name_combo.count())]:
-                    self.layer_name_combo.setCurrentText(cached_layer_name)
+        if cached_layer_name and cached_layer_name in [self.layer_name_combo.itemText(i) for i in range(self.layer_name_combo.count())]:
+            self.layer_name_combo.setCurrentText(cached_layer_name)
 
-                if cached_source_path and cached_source_path in [self.source_path_combo.itemText(i) for i in range(self.source_path_combo.count())]:
-                    self.source_path_combo.setCurrentText(cached_source_path)
+        if cached_source_path and cached_source_path in [self.source_path_combo.itemText(i) for i in range(self.source_path_combo.count())]:
+            self.source_path_combo.setCurrentText(cached_source_path)
 
-        use_filter_category = self.get_cached_value("use_filter_category", "True") == "True"
-        self.use_filter_category_checkbox.setChecked(use_filter_category)
+    def restore_cached_filter_categories(self):
+        """
+        Restore cached filter categories and their selections.
+        """
+        use_filter_category1 = self.get_cached_value("use_filter_category1", "True") == "True"
+        self.use_filter_category_checkbox1.setChecked(use_filter_category1)
 
-        cached_filter_category_field = self.get_cached_value("filter_category_field", "")
-        if use_filter_category and cached_filter_category_field and cached_filter_category_field in [self.filter_category_combo.itemText(i) for i in range(self.filter_category_combo.count())]:
-            self.filter_category_combo.setCurrentText(cached_filter_category_field)
+        cached_filter_category_field1 = self.get_cached_value("filter_category_field1", "")
+        if use_filter_category1 and cached_filter_category_field1 and cached_filter_category_field1 in [self.filter_category_combo1.itemText(i) for i in range(self.filter_category_combo1.count())]:
+            self.filter_category_combo1.setCurrentText(cached_filter_category_field1)
 
             # Populate filter categories and validate cached selections
-            self.populate_filter_categories()
-            cached_filter_categories = self.get_cached_value("filter_categories", "").split(",")
-            for i in range(self.filter_category_layout.count()):
-                checkbox = self.filter_category_layout.itemAt(i).widget()
-                if isinstance(checkbox, QCheckBox) and checkbox.text() in cached_filter_categories:
+            self.populate_filter_categories1()
+            cached_filter_categories1 = self.get_cached_value("filter_categories1", "").split(",")
+            for i in range(self.filter_category_layout1.count()):
+                checkbox = self.filter_category_layout1.itemAt(i).widget()
+                if isinstance(checkbox, QCheckBox) and checkbox.text() in cached_filter_categories1:
                     checkbox.setChecked(True)
 
-        use_second_filter_category = self.get_cached_value("use_second_filter_category", "False") == "True"
-        self.use_second_filter_category_checkbox.setChecked(use_second_filter_category)
+        use_filter_category2 = self.get_cached_value("use_filter_category2", "False") == "True"
+        self.use_filter_category_checkbox2.setChecked(use_filter_category2)
 
-        cached_second_filter_category_field = self.get_cached_value("second_filter_category_field", "")
-        if use_second_filter_category and cached_second_filter_category_field and cached_second_filter_category_field in [self.second_filter_category_combo.itemText(i) for i in range(self.second_filter_category_combo.count())]:
-            self.second_filter_category_combo.setCurrentText(cached_second_filter_category_field)
+        cached_filter_category_field2 = self.get_cached_value("filter_category_field2", "")
+        if use_filter_category2 and cached_filter_category_field2 and cached_filter_category_field2 in [self.filter_category_combo2.itemText(i) for i in range(self.filter_category_combo2.count())]:
+            self.filter_category_combo2.setCurrentText(cached_filter_category_field2)
 
             # Populate second filter categories and validate cached selections
-            self.populate_second_filter_categories()
-            cached_second_filter_categories = self.get_cached_value("second_filter_categories", "").split(",")
-            for i in range(self.second_filter_category_layout.count()):
-                checkbox = self.second_filter_category_layout.itemAt(i).widget()
-                if isinstance(checkbox, QCheckBox) and checkbox.text() in cached_second_filter_categories:
+            self.populate_filter_categories2()
+            cached_filter_categories2 = self.get_cached_value("filter_categories2", "").split(",")
+            for i in range(self.filter_category_layout2.count()):
+                checkbox = self.filter_category_layout2.itemAt(i).widget()
+                if isinstance(checkbox, QCheckBox) and checkbox.text() in cached_filter_categories2:
                     checkbox.setChecked(True)
 
-        # Restore Layer Name Descriptor Delimiter
+    def restore_other_cached_settings(self):
+        """
+        Restore other cached settings such as layer name delimiter, case sensitivity, etc.
+        """
         self.layer_name_delimiter_edit.setText(self.get_cached_value("layer_name_delimiter", "_"))
-
-        # Restore Case-Sensitive Layer Matching
         self.case_sensitive_checkbox.setChecked(self.get_cached_value("case_sensitive_matching", "False") == "True")
-
-        # Restore Generate HTML Report option
         self.generate_html_checkbox.setChecked(self.get_cached_value("generate_html_report", "False") == "True")
-
-        # Restore Verbose Console option
         self.verbose_console_checkbox.setChecked(self.get_cached_value("verbose_console", "False") == "True")
 
         # Set default report path if not restored from settings
@@ -281,7 +315,7 @@ class ValidateProjectReportDialog(QDialog):
                 project_name = os.path.splitext(os.path.basename(qgis_project_path))[0]
                 default_report_path = os.path.join(project_dir, f"{project_name}_ValidationReport.csv")
                 self.report_path_edit.setText(default_report_path)
-                self.log_message(f"Default report path set to: {default_report_path}",debug=True)
+                self.log_message(f"Default report path set to: {default_report_path}", debug=True)
             else:
                 self.log_message("No QGIS project loaded. Unable to set default report path.")
 
@@ -388,33 +422,33 @@ class ValidateProjectReportDialog(QDialog):
             self.source_path_combo.clear()
             self.source_path_combo.addItems(headers)
 
-            self.filter_category_combo.clear()
-            self.filter_category_combo.addItems(headers)
+            self.filter_category_combo1.clear()
+            self.filter_category_combo1.addItems(headers)
 
-            self.second_filter_category_combo.clear()
-            self.second_filter_category_combo.addItems(headers)
+            self.filter_category_combo2.clear()
+            self.filter_category_combo2.addItems(headers)
 
             self.log_message(f"Headers populated from row {header_row}: {', '.join(headers)}",debug=True)
         except Exception as e:
             self.layer_name_combo.clear()
             self.source_path_combo.clear()
-            self.filter_category_combo.clear()
-            self.second_filter_category_combo.clear()
+            self.filter_category_combo1.clear()
+            self.filter_category_combo2.clear()
             QMessageBox.critical(self, "Error", f"Failed to populate headers: {e}")
             self.log_message(f"Error populating headers: {e}")
 
-    def populate_filter_categories(self):
+    def populate_filter_categories1(self):
         """
-        Populate the filter category selection box based on the selected filter category field.
+        Populate the first filter category selection box based on the selected filter category field.
         """
         file_path = self.excel_file_edit.text()
         sheet_name = self.sheet_combo.currentText()
         header_row = self.header_row_spin.value()
-        filter_category_field = self.filter_category_combo.currentText()
+        filter_category_field1 = self.filter_category_combo1.currentText()
 
-        if not file_path or not sheet_name or not filter_category_field:
+        if not file_path or not sheet_name or not filter_category_field1:
             # Clear the filter category layout if no valid field is selected
-            self.clear_filter_category_layout()
+            self.clear_filter_category_layout1()
             return
 
         try:
@@ -423,45 +457,45 @@ class ValidateProjectReportDialog(QDialog):
 
             # Get the column index for the filter category field
             headers = {cell.value: idx for idx, cell in enumerate(sheet[header_row], start=0)}
-            if filter_category_field not in headers:
+            if filter_category_field1 not in headers:
                 raise ValueError("Selected filter category field not found in the header row.")
 
-            filter_category_col = headers[filter_category_field]
+            filter_category_col1 = headers[filter_category_field1]
 
             # Extract unique values from the filter category column
             categories = set()
             for row in sheet.iter_rows(min_row=header_row + 1, max_row=sheet.max_row):
-                value = row[filter_category_col].value
+                value = row[filter_category_col1].value
                 if value:
                     categories.add(str(value))
                 if len(categories) >= 20:  # Limit to 20 categories
                     break
 
             # Clear the filter category layout before repopulating
-            self.clear_filter_category_layout()
+            self.clear_filter_category_layout1()
 
             # Populate the scrollable filter category selection box
             for category in sorted(categories):
                 checkbox = QCheckBox(category)
-                self.filter_category_layout.addWidget(checkbox)
+                self.filter_category_layout1.addWidget(checkbox)
 
             self.log_message(f"Filter categories populated: {', '.join(categories)}",debug=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to populate filter categories: {e}")
             self.log_message(f"Error populating filter categories: {e}")
 
-    def populate_second_filter_categories(self):
+    def populate_filter_categories2(self):
         """
         Populate the second filter category selection box based on the selected second filter category field.
         """
         file_path = self.excel_file_edit.text()
         sheet_name = self.sheet_combo.currentText()
         header_row = self.header_row_spin.value()
-        second_filter_category_field = self.second_filter_category_combo.currentText()
+        filter_category_field2 = self.filter_category_combo2.currentText()
 
-        if not file_path or not sheet_name or not second_filter_category_field:
+        if not file_path or not sheet_name or not filter_category_field2:
             # Clear the second filter category layout if no valid field is selected
-            self.clear_second_filter_category_layout()
+            self.clear_filter_category_layout2()
             return
 
         try:
@@ -470,63 +504,63 @@ class ValidateProjectReportDialog(QDialog):
 
             # Get the column index for the second filter category field
             headers = {cell.value: idx for idx, cell in enumerate(sheet[header_row], start=0)}
-            if second_filter_category_field not in headers:
+            if filter_category_field2 not in headers:
                 raise ValueError("Selected second filter category field not found in the header row.")
 
-            second_filter_category_col = headers[second_filter_category_field]
+            filter_category_col2 = headers[filter_category_field2]
 
             # Extract unique values from the second filter category column
             categories = set()
             for row in sheet.iter_rows(min_row=header_row + 1, max_row=sheet.max_row):
-                value = row[second_filter_category_col].value
+                value = row[filter_category_col2].value
                 if value:
                     categories.add(str(value))
                 if len(categories) >= 20:  # Limit to 20 categories
                     break
 
             # Clear the second filter category layout before repopulating
-            self.clear_second_filter_category_layout()
+            self.clear_filter_category_layout2()
 
             # Populate the scrollable second filter category selection box
             for category in sorted(categories):
                 checkbox = QCheckBox(category)
-                self.second_filter_category_layout.addWidget(checkbox)
+                self.filter_category_layout2.addWidget(checkbox)
 
             self.log_message(f"Second filter categories populated: {', '.join(categories)}",debug=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to populate second filter categories: {e}")
             self.log_message(f"Error populating second filter categories: {e}")
 
-    def clear_filter_category_layout(self):
+    def clear_filter_category_layout1(self):
         """
-        Clear all widgets from the filter category layout and force a UI update.
+        Clear all widgets from the first filter category layout and force a UI update.
         """
         self.log_message("Clearing filter category layout...", debug=True)
-        for i in reversed(range(self.filter_category_layout.count())):
-            item = self.filter_category_layout.itemAt(i)
+        for i in reversed(range(self.filter_category_layout1.count())):
+            item = self.filter_category_layout1.itemAt(i)
             widget = item.widget()
             if widget:
                 self.log_message(f"Removing widget: {widget.text()}", debug=True)
-                self.filter_category_layout.removeWidget(widget)
+                self.filter_category_layout1.removeWidget(widget)
                 widget.deleteLater()
-        self.filter_category_layout.update()  # Force the layout to update
-        self.filter_category_widget.update()  # Force the parent widget to update
+        self.filter_category_layout1.update()  # Force the layout to update
+        self.filter_category_widget1.update()  # Force the parent widget to update
         self.log_message("Filter category layout cleared.", debug=True)
 
-    def clear_second_filter_category_layout(self):
+    def clear_filter_category_layout2(self):
         """
         Clear all widgets from the second filter category layout and force a UI update.
         """
         self.log_message("Clearing second filter category layout...", debug=True)
-        for i in reversed(range(self.second_filter_category_layout.count())):
-            item = self.second_filter_category_layout.itemAt(i)
+        for i in reversed(range(self.filter_category_layout2.count())):
+            item = self.filter_category_layout2.itemAt(i)
             widget = item.widget()
             if widget:
                 self.log_message(f"Removing widget: {widget.text()}", debug=True)
-                self.second_filter_category_layout.removeWidget(widget)
+                self.filter_category_layout2.removeWidget(widget)
                 widget.deleteLater()
-        self.second_filter_category_layout.update()  # Force the layout to update
-        self.second_filter_category_widget.update()  # Force the parent widget to update
+        self.filter_category_layout2.update()  # Force the layout to update
+        self.filter_category_widget2.update()  # Force the parent widget to update
         self.log_message("Second filter category layout cleared.", debug=True)
 
     def browse_report_path(self):
@@ -584,21 +618,21 @@ class ValidateProjectReportDialog(QDialog):
         self.save_cached_value("sheet", self.sheet_combo.currentText())
         self.save_cached_value("layer_name_field", self.layer_name_combo.currentText())
         self.save_cached_value("source_path_field", self.source_path_combo.currentText())
-        self.save_cached_value("use_filter_category", str(self.use_filter_category_checkbox.isChecked()))
-        self.save_cached_value("filter_category_field", self.filter_category_combo.currentText())
-        selected_categories = [
-            checkbox.text() for i in range(self.filter_category_layout.count())
-            if isinstance((checkbox := self.filter_category_layout.itemAt(i).widget()), QCheckBox) and checkbox.isChecked()
+        self.save_cached_value("use_filter_category1", str(self.use_filter_category_checkbox1.isChecked()))
+        self.save_cached_value("filter_category_field1", self.filter_category_combo1.currentText())
+        selected_categories1 = [
+            checkbox.text() for i in range(self.filter_category_layout1.count())
+            if isinstance((checkbox := self.filter_category_layout1.itemAt(i).widget()), QCheckBox) and checkbox.isChecked()
         ]
-        self.save_cached_value("filter_categories", ",".join(selected_categories))
+        self.save_cached_value("filter_categories1", ",".join(selected_categories1))
 
-        self.save_cached_value("use_second_filter_category", str(self.use_second_filter_category_checkbox.isChecked()))
-        self.save_cached_value("second_filter_category_field", self.second_filter_category_combo.currentText())
-        second_selected_categories = [
-            checkbox.text() for i in range(self.second_filter_category_layout.count())
-            if isinstance((checkbox := self.second_filter_category_layout.itemAt(i).widget()), QCheckBox) and checkbox.isChecked()
+        self.save_cached_value("use_filter_category2", str(self.use_filter_category_checkbox2.isChecked()))
+        self.save_cached_value("filter_category_field2", self.filter_category_combo2.currentText())
+        selected_categories2 = [
+            checkbox.text() for i in range(self.filter_category_layout2.count())
+            if isinstance((checkbox := self.filter_category_layout2.itemAt(i).widget()), QCheckBox) and checkbox.isChecked()
         ]
-        self.save_cached_value("second_filter_categories", ",".join(second_selected_categories))
+        self.save_cached_value("filter_categories2", ",".join(selected_categories2))
 
         self.save_cached_value("layer_name_delimiter", self.layer_name_delimiter_edit.text())
         self.save_cached_value("case_sensitive_matching", str(self.case_sensitive_checkbox.isChecked()))
@@ -612,12 +646,12 @@ class ValidateProjectReportDialog(QDialog):
         header_row = self.header_row_spin.value()
         layer_name_field = self.layer_name_combo.currentText()
         source_path_field = self.source_path_combo.currentText()
-        filter_category_field = self.filter_category_combo.currentText()
+        filter_category_field1 = self.filter_category_combo1.currentText()
         report_path = self.report_path_edit.text()
         duplicate_match_mode = self.duplicate_match_combo.currentText()
-        use_filter_category = self.use_filter_category_checkbox.isChecked()
-        use_second_filter_category = self.use_second_filter_category_checkbox.isChecked()
-        second_filter_category_field = self.second_filter_category_combo.currentText()
+        use_filter1_category = self.use_filter_category_checkbox1.isChecked()
+        use_filter2_category = self.use_filter_category_checkbox2.isChecked()
+        filter_category_field2 = self.filter_category_combo2.currentText()
 
         if not excel_file or not sheet_name or not layer_name_field or not source_path_field or not report_path:
             QMessageBox.warning(self, "Missing Input", "Please fill in all fields before proceeding.")
@@ -630,32 +664,98 @@ class ValidateProjectReportDialog(QDialog):
 
             # Map header names to column indices
             headers = {cell.value: idx for idx, cell in enumerate(sheet[header_row], start=0)}
-            if layer_name_field not in headers or source_path_field not in headers or (use_filter_category and filter_category_field not in headers) or (use_second_filter_category and second_filter_category_field not in headers):
+            if layer_name_field not in headers or source_path_field not in headers or (use_filter1_category and filter_category_field1 not in headers) or (use_filter2_category and filter_category_field2 not in headers):
                 raise ValueError("Selected fields not found in the header row.")
 
             layer_name_col = headers[layer_name_field]
             source_path_col = headers[source_path_field]
-            filter_category_col = headers[filter_category_field] if use_filter_category else None
-            second_filter_category_col = headers[second_filter_category_field] if use_second_filter_category else None
+            filter_category_col1 = headers[filter_category_field1] if use_filter1_category else None
+            filter_category_col2 = headers[filter_category_field2] if use_filter2_category else None
 
-            # Extract data from the selected sheet
-            reference_data = {}
+            # Extract all possible layers from the Excel file based on filters
+            possible_layers = {}
             for row in sheet.iter_rows(min_row=header_row + 1, max_row=sheet.max_row):
                 layer_name = row[layer_name_col].value
                 source_path = row[source_path_col].value
-                category = row[filter_category_col].value if use_filter_category else None
-                second_category = row[second_filter_category_col].value if use_second_filter_category else None
-                if layer_name and source_path and (
-                    (not use_filter_category or (category and str(category) in selected_categories)) and
-                    (not use_second_filter_category or (second_category and str(second_category) in second_selected_categories))
-                ):
+                category1 = row[filter_category_col1].value if use_filter1_category else None
+                category2 = row[filter_category_col2].value if use_filter2_category else None
+
+                # Apply filters
+                if use_filter1_category and (not category1 or str(category1) not in selected_categories1):
+                    continue
+                if use_filter2_category and (not category2 or str(category2) not in selected_categories2):
+                    continue
+
+                if layer_name and source_path:
                     normalized_layer_name = self.normalize_path(layer_name, case_sensitive_matching)
                     normalized_source_path = self.normalize_path(source_path, case_sensitive_matching)
-                    if normalized_layer_name not in reference_data:
-                        reference_data[normalized_layer_name] = []
-                    reference_data[normalized_layer_name].append((normalized_source_path, category, second_category))
+                    possible_layers[normalized_layer_name] = {
+                        "original_layer_name": layer_name,
+                        "source_path": normalized_source_path,
+                        "category1": category1,
+                        "category2": category2,
+                    }
 
-            self.log_message(f"Reference data extracted: {reference_data}", debug=True)
+            self.log_message(f"Possible layers extracted: {possible_layers}", debug=True)
+
+            # Initialize unmatched layers with all possible layers
+            unmatched_layers = possible_layers.copy()
+
+            # Validate against project layers
+            project_layers = QgsProject.instance().mapLayers()
+            html_rows = []  # Collect rows for the HTML report
+            matched_count = 0
+            wrong_source_count = 0
+            layer_name_not_found_count = 0
+            total_count = 0
+
+            for layer_id, layer in project_layers.items():
+                layer_name = layer.name()
+                layer_source = layer.dataProvider().dataSourceUri()
+
+                # Normalize the layer name and source for comparison
+                normalized_layer_name = self.normalize_path(layer_name, case_sensitive_matching)
+                if layer_name_delimiter in normalized_layer_name:
+                    normalized_layer_name = normalized_layer_name.split(layer_name_delimiter, 1)[0]
+                    self.log_message(f"Layer name '{layer_name}' normalized to '{normalized_layer_name}' using delimiter '{layer_name_delimiter}'", debug=True)
+                normalized_layer_source = self.normalize_path(layer_source, case_sensitive_matching)
+
+                if normalized_layer_name in possible_layers:
+                    reference_source = possible_layers[normalized_layer_name]["source_path"]
+                    category1 = possible_layers[normalized_layer_name]["category1"]
+                    category2 = possible_layers[normalized_layer_name]["category2"]
+                    if normalized_layer_source == reference_source:
+                        check_result = "MATCHED"
+                        matched_count += 1
+                    else:
+                        check_result = "WRONGSOURCE"
+                        wrong_source_count += 1
+
+                    # Remove matched or wrong source layers from unmatched layers
+                    unmatched_layers.pop(normalized_layer_name, None)
+                else:
+                    reference_source = ""
+                    category1 = ""
+                    category2 = ""
+                    check_result = "LAYERNAMENOTFOUND"
+                    layer_name_not_found_count += 1
+
+                # Skip blank lines
+                if not layer_name or not check_result or not normalized_layer_source:
+                    self.log_message(f"Skipping blank line for layer '{layer_name}'", debug=True)
+                    continue
+
+                # Increment total count
+                total_count += 1
+
+                # Write the validation result to the report
+                html_rows.append(
+                    (layer_name, check_result, normalized_layer_source, reference_source, category1, category2)
+                )
+
+                self.log_message(f"Layer '{layer_name}' checked: {check_result}", debug=True)
+
+            self.log_message(f"Unmatched layers after validation: {unmatched_layers}", debug=True)
 
             # Collect validation details
             from datetime import datetime
@@ -664,14 +764,8 @@ class ValidateProjectReportDialog(QDialog):
             report_user = getpass.getuser()
             qgis_project_path = QgsProject.instance().fileName()
             validation_excel_date_modified = datetime.fromtimestamp(os.path.getmtime(excel_file)).strftime("%Y-%m-%d %H:%M:%S")
-            validation_filter_categories1 = ";".join(selected_categories)
-            validation_filter_categories2 = ";".join(second_selected_categories)
-
-            # Initialize summary counters
-            matched_count = 0
-            wrong_source_count = 0
-            layer_name_not_found_count = 0
-            total_count = 0
+            validation_filter_categories1 = ";".join(selected_categories1)
+            validation_filter_categories2 = ";".join(selected_categories2)
 
             # Open the report file for writing (CSV)
             with open(report_path, "w", encoding="utf-8") as report_file:
@@ -691,56 +785,16 @@ class ValidateProjectReportDialog(QDialog):
                 # Write the #DATASOURCECHECK# section header
                 report_file.write("#DATASOURCECHECK#\n")
                 report_file.write("LayerName,CheckResult,LayerSource,ReferenceSource,FilterCategory,SecondFilterCategory\n")
+                for row in html_rows:
+                    report_file.write(",".join(map(str, row)) + "\n")
 
-                # Validate against project layers
-                project_layers = QgsProject.instance().mapLayers()
-                html_rows = []  # Collect rows for the HTML report
-                for layer_id, layer in project_layers.items():
-                    layer_name = layer.name()
-                    layer_source = layer.dataProvider().dataSourceUri()
-
-                    # Normalize the layer name and source for comparison
-                    normalized_layer_name = self.normalize_path(layer_name, case_sensitive_matching)
-                    if layer_name_delimiter in normalized_layer_name:
-                        normalized_layer_name = normalized_layer_name.split(layer_name_delimiter, 1)[0]
-                        self.log_message(f"Layer name '{layer_name}' normalized to '{normalized_layer_name}' using delimiter '{layer_name_delimiter}'", debug=True)
-                    normalized_layer_source = self.normalize_path(layer_source, case_sensitive_matching)
-
-                    if normalized_layer_name in reference_data:
-                        reference_sources = reference_data[normalized_layer_name]
-                        for reference_source, category, second_category in reference_sources:
-                            if normalized_layer_source == reference_source:
-                                check_result = "MATCHED"
-                                matched_count += 1
-                                break
-                        else:
-                            reference_source, category, second_category = reference_sources[0]
-                            check_result = "WRONGSOURCE"
-                            wrong_source_count += 1
-                    else:
-                        reference_source = ""
-                        category = ""
-                        second_category = ""
-                        check_result = "LAYERNAMENOTFOUND"
-                        layer_name_not_found_count += 1
-
-                    # Skip blank lines
-                    if not layer_name or not check_result or not normalized_layer_source:
-                        self.log_message(f"Skipping blank line for layer '{layer_name}'", debug=True)
-                        continue
-
-                    # Increment total count
-                    total_count += 1
-
-                    # Write the validation result to the report
-                    report_file.write(f"{layer_name},{check_result},{normalized_layer_source},{reference_source},{category},{second_category}\n")
-
-                    # Collect data for the HTML report
-                    html_rows.append(
-                        (layer_name, check_result, normalized_layer_source, reference_source, category, second_category)
+                # Write the #MISSINGVALIDATION# section
+                report_file.write("\n#MISSINGVALIDATION#\n")
+                report_file.write("LayerName,SourcePath,FilterCategory,SecondFilterCategory\n")
+                for layer_data in unmatched_layers.values():
+                    report_file.write(
+                        f"{layer_data['original_layer_name']},{layer_data['source_path']},{layer_data['category1']},{layer_data['category2']}\n"
                     )
-
-                    self.log_message(f"Layer '{layer_name}' checked: {check_result}",debug=True)
 
                 # Write the #VALIDATIONSUMMARY# section
                 report_file.write("\n#VALIDATIONSUMMARY#\n")
@@ -748,13 +802,6 @@ class ValidateProjectReportDialog(QDialog):
                 report_file.write(f"DATASOURCES_WRONGSOURCE={wrong_source_count}\n")
                 report_file.write(f"DATASOURCES_LAYERNAMENOTFOUND={layer_name_not_found_count}\n")
                 report_file.write(f"DATASOURCES_TOTAL={total_count}\n")
-
-                # Log the summary to the console
-                self.log_message("\nValidation Summary:")
-                self.log_message(f"DATASOURCES_MATCHED={matched_count}")
-                self.log_message(f"DATASOURCES_WRONGSOURCE={wrong_source_count}")
-                self.log_message(f"DATASOURCES_LAYERNAMENOTFOUND={layer_name_not_found_count}")
-                self.log_message(f"DATASOURCES_TOTAL={total_count}")
 
             # Generate HTML report if the option is selected
             if self.generate_html_checkbox.isChecked():
@@ -764,11 +811,30 @@ class ValidateProjectReportDialog(QDialog):
                     html_file.write("<style>")
                     html_file.write("table { border-collapse: collapse; width: 100%; }")
                     html_file.write("th, td { border: 1px solid black; padding: 8px; text-align: left; }")
-                    html_file.write("th { background-color: #f2f2f2; }")
+                    html_file.write("th { background-color: #f2f2f2; cursor: pointer; }")  # Add cursor pointer for sortable headers
                     html_file.write(".matched { background-color: #d4edda; }")  # Light green
                     html_file.write(".layernotfound { background-color: #fff3cd; }")  # Light yellow
                     html_file.write(".wrongsource { background-color: #f8d7da; }")  # Light red
                     html_file.write("</style>")
+                    html_file.write("<script>")
+                    html_file.write("""
+                        // JavaScript function to sort table columns
+                        function sortTable(tableId, columnIndex) {
+                            const table = document.getElementById(tableId);
+                            const rows = Array.from(table.rows).slice(1); // Exclude header row
+                            const isAscending = table.getAttribute('data-sort-order') !== 'asc';
+                            rows.sort((rowA, rowB) => {
+                                const cellA = rowA.cells[columnIndex].innerText.toLowerCase();
+                                const cellB = rowB.cells[columnIndex].innerText.toLowerCase();
+                                if (cellA < cellB) return isAscending ? -1 : 1;
+                                if (cellA > cellB) return isAscending ? 1 : -1;
+                                return 0;
+                            });
+                            rows.forEach(row => table.tBodies[0].appendChild(row));
+                            table.setAttribute('data-sort-order', isAscending ? 'asc' : 'desc');
+                        }
+                    """)
+                    html_file.write("</script>")
                     html_file.write("</head><body>")
                     html_file.write("<h1>Validation Report</h1>")
                     html_file.write("<h2>Validation Details</h2>")
@@ -783,10 +849,15 @@ class ValidateProjectReportDialog(QDialog):
                     html_file.write(f"<p><b>Validation Filter Categories 1:</b> {validation_filter_categories1}</p>")
                     html_file.write(f"<p><b>Validation Filter Categories 2:</b> {validation_filter_categories2}</p>")
                     html_file.write("<h2>Data Source Check</h2>")
-                    html_file.write("<table><tr><th>Layer Name</th><th>Check Result</th><th>Layer Source</th>"
-                                    "<th>Reference Source</th><th>Filter Category</th><th>Second Filter Category</th></tr>")
-                    
-                    for layer_name, check_result, normalized_layer_source, reference_source, category, second_category in html_rows:
+                    html_file.write('<table id="datasource-check"><thead><tr>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 0)">Layer Name</th>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 1)">Check Result</th>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 2)">Layer Source</th>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 3)">Reference Source</th>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 4)">Filter Category</th>')
+                    html_file.write('<th onclick="sortTable(\'datasource-check\', 5)">Second Filter Category</th>')
+                    html_file.write("</tr></thead><tbody>")
+                    for layer_name, check_result, normalized_layer_source, reference_source, category1, category2 in html_rows:
                         result_class = ""
                         if check_result == "MATCHED":
                             result_class = "matched"
@@ -794,17 +865,34 @@ class ValidateProjectReportDialog(QDialog):
                             result_class = "layernotfound"
                         elif check_result == "WRONGSOURCE":
                             result_class = "wrongsource"
-                        
+
                         html_file.write(
                             f"<tr><td>{layer_name}</td>"
                             f"<td class='{result_class}'>{check_result}</td>"
                             f"<td>{normalized_layer_source}</td>"
                             f"<td>{reference_source}</td>"
-                            f"<td>{category}</td>"
-                            f"<td>{second_category}</td></tr>"
+                            f"<td>{category1}</td>"
+                            f"<td>{category2}</td></tr>"
                         )
+                    html_file.write("</tbody></table>")
 
-                    html_file.write("</table>")
+                    # Add the #MISSINGVALIDATION# section to the HTML report
+                    html_file.write("<h2>Missing Validation Layers</h2>")
+                    html_file.write('<table id="missing-validation"><thead><tr>')
+                    html_file.write('<th onclick="sortTable(\'missing-validation\', 0)">Layer Name</th>')
+                    html_file.write('<th onclick="sortTable(\'missing-validation\', 1)">Source Path</th>')
+                    html_file.write('<th onclick="sortTable(\'missing-validation\', 2)">Filter Category</th>')
+                    html_file.write('<th onclick="sortTable(\'missing-validation\', 3)">Second Filter Category</th>')
+                    html_file.write("</tr></thead><tbody>")
+                    for layer_data in unmatched_layers.values():
+                        html_file.write(
+                            f"<tr><td>{layer_data['original_layer_name']}</td>"
+                            f"<td>{layer_data['source_path']}</td>"
+                            f"<td>{layer_data['category1']}</td>"
+                            f"<td>{layer_data['category2']}</td></tr>"
+                        )
+                    html_file.write("</tbody></table>")
+
                     html_file.write("<h2>Validation Summary</h2>")
                     html_file.write(f"<p><b>Matched:</b> <span style='color: #155724; background-color: #d4edda;'>Matched</span> ({matched_count})</p>")  # Light green
                     html_file.write(f"<p><b>Wrong Source:</b> <span style='color: #721c24; background-color: #f8d7da;'>Wrong Source</span> ({wrong_source_count})</p>")  # Light red
