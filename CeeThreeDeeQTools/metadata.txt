@@ -29,7 +29,7 @@ homepage=http://ceethreedee.com
 category=Analysis
 icon=assets/img/CTD_logo.png
 # experimental flag
-experimental=False
+experimental=true
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False

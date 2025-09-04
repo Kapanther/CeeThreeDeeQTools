@@ -94,9 +94,20 @@ class CTDQPlugin(object):
     def initGui(self):
         self.initProcessing()
 
-        # Create the "CeeThreeDee Qtools" menu
-        self.menu = QMenu(self.tr("CeeThreeDee Qtools"), self.iface.mainWindow())
-        self.iface.mainWindow().menuBar().addMenu(self.menu)
+        # Add "CeeThreeDee Qtools" as a submenu under the existing "Plugins" menu
+        plugins_menu = None
+        for action in self.iface.mainWindow().menuBar().actions():
+            if action.text() == self.tr("&Plugins"):
+                plugins_menu = action.menu()
+                break
+
+        if plugins_menu is not None:
+            self.menu = QMenu(self.tr("CeeThreeDee Qtools"), plugins_menu)
+            plugins_menu.addMenu(self.menu)
+        else:
+            # Fallback: create menu at top level if Plugins menu not found
+            self.menu = QMenu(self.tr("CeeThreeDee Qtools"), self.iface.mainWindow())
+            self.iface.mainWindow().menuBar().addMenu(self.menu)
 
         # Create action for the validation dialog
         self.validateAction = QAction(
