@@ -584,6 +584,9 @@ class ValidateProjectReportDialog(QDialog):
         if path.lower().startswith("file:"):
             # Remove the "file:" prefix
             normalized = path[5:]
+            # remove / in front if still present
+            while normalized.startswith("/"):
+                normalized = normalized[1:]
             # Decode URL-encoded characters (e.g., %20 to space)
             normalized = unquote(normalized)
             # Remove everything after the ? symbol
