@@ -52,6 +52,19 @@ ctdprocessing_info = {
             f"<li>{fop}Output Catchments:{fcc} The file where the generated vector catchments will be saved.</li>"
             "</ul>"
         )
+    },
+    "FindRasterPonds": {
+        "disp": "Find Raster Ponds",
+        "group": ctdgroup_info[2]["group"],
+        "group_id": ctdgroup_info[2]["group_id"],
+        "shortHelp": (
+            "Detects ponds (sinks) in a raster and outputs a vector layer with polygons representing the ponds."
+            "<h3>Parameters</h3>"
+            "<ul>"
+            f"<li>{fop}Ground Raster:{fcc} The raster representing ground surface.</li>"
+            f"<li>{fop}Ponds:{fcc} The file where the generated vector ponds will be saved.</li>"
+            "</ul>"
+        )
     }
 }
 
