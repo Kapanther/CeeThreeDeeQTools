@@ -53,10 +53,14 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         def get(self):
             return heapq.heappop(self.elements)[1]
     TOOL_NAME = "FindRasterPonds"
+    """
+    QGIS Processing Algorithm to detect ponds (sinks) in a raster and output a vector layer with polygons representing the ponds.
+    """
 
-    # PARAMETERS #
-
-    OUTPUT = "OUTPUT"  # Generic Output
+    
+    INPUT_RASTER = "INPUT_RASTER"
+    OUTPUT_VECTOR = "OUTPUT_VECTOR"
+    OUTPUT_FILLED_RASTER = "OUTPUT_FILLED_RASTER"
 
     def name(self):
         return self.TOOL_NAME
