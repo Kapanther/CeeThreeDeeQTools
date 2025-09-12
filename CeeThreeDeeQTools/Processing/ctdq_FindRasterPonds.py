@@ -28,7 +28,8 @@ from qgis.core import (
     QgsRasterLayer,
     QgsProcessingParameterFolderDestination,
     QgsProcessingParameterRasterLayer,
-    QgsProcessingParameterNumber
+    QgsProcessingParameterNumber,
+    QgsProcessingParameterRasterDestination
 )
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
@@ -100,6 +101,14 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             )
         )
 
+        self.addParameter(
+            QgsProcessingParameterRasterDestination(
+                "OUTPUT_FILLED_RASTER",
+                "Output Filled Raster",
+                optional=False
+            )
+        )
+
     def processAlgorithm(
         self,
         parameters: dict[str, Any],
@@ -112,7 +121,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
 
         # Get input raster and output path
         input_raster = self.parameterAsRasterLayer(parameters, "GROUND_RASTER", context)
-        output_raster_path = self.parameterAsString(parameters, self.OUTPUT, context)
+        output_raster_path = self.parameterAsOutputLayer(parameters, "OUTPUT_FILLED_RASTER", context)
         feedback.pushInfo(f"Input raster: {input_raster.name()}")
         feedback.pushInfo(f"Output raster path: {output_raster_path}")
 
@@ -163,11 +172,35 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         pq.put((ny, nx), filled_dem[ny, nx])
                         visited[ny, nx] = True
 
-        # Write filled raster to disk
-        from qgis.core import QgsRasterPipe, QgsRasterFileWriter
-        pipe = QgsRasterPipe()
-        pipe.set(provider.clone())
-        writer = QgsRasterFileWriter(output_raster_path)
-        writer.writeRaster(pipe, width, height, extent, input_raster.crs())
+        # Ensure output directory exists
+        import os
+        output_dir = os.path.dirname(output_raster_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        # Write filled raster to disk using GDAL
+        from osgeo import gdal
+        driver = gdal.GetDriverByName('GTiff')
+        out_raster = driver.Create(output_raster_path, width, height, 1, gdal.GDT_Float32)
+        # Construct GDAL geotransform from QGIS raster
+        extent = input_raster.extent()
+        geotransform = (
+            extent.xMinimum(),
+            input_raster.rasterUnitsPerPixelX(),
+            0,
+            extent.yMaximum(),
+            0,
+            -input_raster.rasterUnitsPerPixelY()
+        )
+        out_raster.SetGeoTransform(geotransform)
+        out_raster.SetProjection(input_raster.crs().toWkt())
+        out_band = out_raster.GetRasterBand(1)
+        # Write the array, flipping rows to match GDAL's expected orientation
+        out_band.WriteArray(filled_dem.T)
+        out_band.SetNoDataValue(no_data_value)
+        out_band.FlushCache()
+        out_raster = None
         feedback.pushInfo(f"Filled raster written to: {output_raster_path}")
-        return {self.OUTPUT: output_raster_path}
+        return {"OUTPUT_FILLED_RASTER": output_raster_path}
+
+    def createInstance(self):
+        return FindRasterPonds()
