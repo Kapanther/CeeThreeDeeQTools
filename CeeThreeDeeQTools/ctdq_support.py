@@ -61,11 +61,32 @@ ctdprocessing_info = {
             "Detects ponds (sinks) in a raster and outputs a vector layer with polygons representing the ponds."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Ground Raster:{fcc} The raster representing ground surface.</li>"
-            f"<li>{fop}Ponds:{fcc} The file where the generated vector ponds will be saved.</li>"
+            f"<li>{fop}Input Raster:{fcc} The raster representing ground surface.</li>"
+            f"<li>{fop}Minimum Pond Size (in Square Units):{fcc} The minimum size for each pond (in square units of the CRS).</li>"
+            f"<li>{fop}Smooth Pond Outlines:{fcc} Whether to smooth the pond outlines after detection (recommended removes the squares).</li>"
+            f"<li>{fop}Output Ponds:{fcc} The file where the generated vector ponds will be saved.</li>"
+            f"<li>{fop}Output Filled Raster [optional]:{fcc} The file where the output filled raster will be saved.</li>"
+            f"<li>{fop}Output Pond Depth Raster [optional]:{fcc} The file where the output pond depth raster will be saved.</li>"
+            f"<li>{fop}Output Pond Depth Raster (Valid) [optional]:{fcc} The file where the output pond depth raster (valid) will be saved.</li>"
+
+            "</ul>"
+        )
+    },
+    "CalculateStageStoragePond": {
+        "disp": "Calculate Stage Storage for Ponds",
+        "group": ctdgroup_info[2]["group"],
+        "group_id": ctdgroup_info[2]["group_id"],
+        "shortHelp": (
+            "Calculates the stage-storage relationship for pond polygons based on a ground raster. The output is a vector layer with overlapping polygons representing slices of the pond at different stages, each with attributes for area and volume."
+            "<h3>Parameters</h3>"
+            "<ul>"
+            f"<li>{fop}Input Ponds Vector Layer:{fcc} The vector layer containing pond polygons.</li>"
+            f"<li>{fop}Input Ground Raster:{fcc} The raster representing ground surface.</li>"
+            f"<li>{fop}Output Stage Storage Slices:{fcc} The file where the output stage storage slices will be saved.</li>"
             "</ul>"
         )
     }
+
 }
 
 def get_plugin_dir():

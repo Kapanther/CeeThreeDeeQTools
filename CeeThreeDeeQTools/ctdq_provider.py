@@ -39,6 +39,7 @@ from .Processing.ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .Processing.ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
 from .Processing.ctdq_ExportProjectLayerStyles import ExportProjectLayerStyles
 from .Processing.ctdq_FindRasterPonds import FindRasterPonds
+from .Processing.ctdq_StageStorage import CalculateStageStoragePond
 import os
 
 
@@ -74,6 +75,7 @@ class CTDQProvider(QgsProcessingProvider):
         self.addAlgorithm(GenerateCatchmentsMinArea())
         self.addAlgorithm(ExportProjectLayerStyles())      
         self.addAlgorithm(FindRasterPonds())  
+        self.addAlgorithm(CalculateStageStoragePond())
         # add additional algorithms here
 
     def id(self):
