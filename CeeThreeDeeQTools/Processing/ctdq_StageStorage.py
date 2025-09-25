@@ -37,6 +37,7 @@ from qgis.core import (
     QgsCoordinateTransformContext,
     QgsProcessingUtils,
     QgsRasterLayer,  # Import QgsRasterLayer for raster support
+    QgsProcessingParameterString,  # Import QgsProcessingParameterString for text input
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
@@ -92,12 +93,12 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             )
         )
 
+        # Replace the field selection parameter with a text input box
         self.addParameter(
-            QgsProcessingParameterField(
+            QgsProcessingParameterString(
                 self.INPUT_PONDS_RL_FIELD,
                 "Input Ponds RL Field",
-                self.INPUT_PONDS_VECTOR,
-                optional=False
+                defaultValue="PondRLmax"
             )
         )
 
