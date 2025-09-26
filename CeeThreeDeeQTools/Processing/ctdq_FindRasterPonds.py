@@ -604,6 +604,22 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 else:
                     pond_layer_area.rollBack()
                     feedback.pushInfo(f"No pond features smaller than MIN_AREA={min_area} found.")
+
+                # Add a new field "PONDid" to assign unique IDs to each pond
+                pond_layer_area.startEditing()
+                if "PONDid" not in [field.name() for field in pond_layer_area.fields()]:
+                    pond_layer_area.dataProvider().addAttributes([QgsField("PONDid", QVariant.String)])
+                    pond_layer_area.updateFields()
+
+                # Assign unique IDs (P1, P2, P3, ...) to each pond
+                for i, feature in enumerate(pond_layer_area.getFeatures(), start=1):
+                    feature.setAttribute("PONDid", f"P{i}")
+                    pond_layer_area.updateFeature(feature)
+
+                pond_layer_area.commitChanges()
+                feedback.pushInfo("Assigned unique IDs (PONDid) to each pond.")
+            else:
+                feedback.reportError(f"Could not load pond outlines layer for filtering: {pond_outline_output_path}")
         except Exception as e:
             feedback.pushInfo(f"Exception during MIN_AREA filtering: {e}")
 
@@ -692,7 +708,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                     for kw in keywords:
                         target = f"{prefix}{kw}".lower()
                         if target in low_names:
-                            return names[low_names.index(target)]
+                            return names[i]
                     # fallback: find any field that starts with prefix and contains any keyword
                     for i, n in enumerate(low_names):
                         if n.startswith(prefix.lower()):
