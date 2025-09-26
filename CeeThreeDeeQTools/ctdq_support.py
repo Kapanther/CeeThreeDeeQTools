@@ -77,13 +77,23 @@ ctdprocessing_info = {
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Calculates the stage-storage relationship for pond polygons based on a ground raster. The output is a vector layer with overlapping polygons representing slices of the pond at different stages, each with attributes for area and volume."
+            "Calculates the stage-storage relationship for pond polygons based on a ground raster. The output is a vector layer with overlapping polygons representing slices of the pond at "
+            "different stages, each with attributes for area and volume. Optionally, an HTML report can be generated to summarize the results."
             "<h3>Parameters</h3>"
             "<ul>"
             f"<li>{fop}Input Ponds Vector Layer:{fcc} The vector layer containing pond polygons.</li>"
             f"<li>{fop}Input Ground Raster:{fcc} The raster representing ground surface.</li>"
             f"<li>{fop}Output Stage Storage Slices:{fcc} The file where the output stage storage slices will be saved.</li>"
+            f"<li>{fop}Output Stage Storage HTML Report [optional]:{fcc} The file where the output HTML report will be saved, click the link to open the report at the end.</li>"
+            f"<li>{fop}Vertical Interval (e.g., 0.1):{fcc} The vertical interval between slices (in the units of the CRS).</li>"
+            f"<li>{fop}Pond Max RL Field:{fcc} The field in the ponds layer that contains the maximum RL (elevation) for each pond.</li>"
+            f"<li>{fop}Pond ID Field :{fcc} The field in the ponds layer that uniquely identifies each pond.</li>"         
             "</ul>"
+            "<h3>Advanced Parameters</h3>"
+            "<ul>"
+            f"<li>{fop}Elevation Rounding Precision:{fcc} The number of decimal places to round elevations to when processing (default 2).</li>"
+            f"<li>{fop}Area Rounding Precision:{fcc} The number of decimal places to round area values to when calculating (default 0).</li>"
+            f"<li>{fop}Volume Rounding Precision:{fcc} The number of decimal places to round volume values to when calculating (default 0).</li>"
         )
     }
 
