@@ -38,7 +38,7 @@ from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
 from PyQt5.QtWidgets import QAction, QMenu
 from PyQt5.QtGui import QIcon, QDesktopServices
-from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator
+from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -61,8 +61,13 @@ class CTDQPlugin(object):
         self.provider = CTDQProvider()
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
-        # initialize locale
-        locale = QSettings().value("locale/userLocale")[0:2]
+        # initialize locale (robust to QVariant / different return types)
+        raw_locale = QSettings().value("locale/userLocale", QLocale.system().name())
+        try:
+            # ensure we have a Python string and take the language part
+            locale = str(raw_locale)[0:2]
+        except Exception:
+            locale = QLocale.system().name()[0:2]
         locale_path = os.path.join(self.plugin_dir, "i18n", f"CeeThreeDeeQTOOLS_{locale}.qm")
 
         if os.path.exists(locale_path):

@@ -1,6 +1,14 @@
 import os
 from pathlib import Path
 
+# Import QGIS modules at the top level
+try:
+    from processing.core.ProcessingConfig import ProcessingConfig
+    from qgis.core import QgsApplication
+    QGIS_AVAILABLE = True
+except ImportError:
+    QGIS_AVAILABLE = False
+
 ctdgroup_info = {
     1: {"group": "Projects", "group_id": "projects"},
     2: {"group": "Hydrology", "group_id": "hydrology"},
@@ -10,6 +18,24 @@ ctdgroup_info = {
 fop = '<font style="color:#CD5C5C;">' #font style for parameters (redish color)
 foe = '<font style="color:#9400D3;">' #font style for emphasis (purple)
 fcc = "</font>"                       #font style end
+
+ctdprocessing_settingsdefaults = {
+    "ctdq_precision_elevation": {
+        "value": 2,
+        "display_name": "Elevation Precision (decimal places)",
+        "description": "Number of decimal places for elevation values"
+    },
+    "ctdq_precision_area": {
+        "value": 0,
+        "display_name": "Area Precision (decimal places)", 
+        "description": "Number of decimal places for area values"
+    },
+    "ctdq_precision_volume": {
+        "value": 0,
+        "display_name": "Volume Precision (decimal places)",
+        "description": "Number of decimal places for volume values"
+    }
+}
 
 ctdprocessing_info = {    
     "ExportProjectLayerStyles": {
@@ -33,23 +59,22 @@ ctdprocessing_info = {
             "Generates a bounding box map of all layers used in the current QGIS project, each bounding box will contain details about the layer including path,CRS etc."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Output Bounding Box File:{fcc} The file where the data sources map will be saved.</li>"
+            f"<li>{fop}Output HTML file:{fcc} Location to save the HTML file which shows the Data Sources Map.</li>"
+            f"<li>{fop}Output Table:{fcc} A table containing the details of each layer which can be exported into CAD programs as text.</li>"
             "</ul>"
         )
     },
     "GenerateCatchmentsMinArea": {
-        "disp": "Generate Catchments with Minimum Area",
+        "disp": "Generate Catchments - Min Area",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Creates vector based catchment areas and streams from just a raster, to prevent creating small granular catchments a minimum area is specified start with about 15000 units. This minimum area is based on the pixels of the raster ."
-            "NOTE: This tool utilised Grass GIS algorithms that are typically packaged with QGIS but may require additional installation steps depending on your OS."
+            "This tool generates catchments from a flow accumulation raster clipped to a boundary, it utilises GRASS commands to acheive the processing."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Input Raster:{fcc} The raster representing ground surface.</li>"
-            f"<li>{fop}Minimum Area:{fcc} The minimum area for each catchment (in square units, raster pixels).</li>"
-            f"<li>{fop}Output Streams:{fcc} The file where the generated vector streams will be saved.</li>"
-            f"<li>{fop}Output Catchments:{fcc} The file where the generated vector catchments will be saved.</li>"
+            f"<li>{fop}Input DEM:{fcc} A DEM to be processed.</li>"
+            f"<li>{fop}Input Boundary Polygon:{fcc} A boundary to clip the DEM to before processing, leave blank to use the full extent.</li>"
+            f"<li>{fop}Output Folder:{fcc} The output location for the individual raster and vector files created by the process.</li>"
             "</ul>"
         )
     },
@@ -58,53 +83,116 @@ ctdprocessing_info = {
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Detects ponds (sinks) in a raster and outputs a vector layer with polygons representing the ponds."
+            "Find potential ponds from a DEM by identifying depressions and flat areas."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Input Raster:{fcc} The raster representing ground surface.</li>"
-            f"<li>{fop}Minimum Pond Size (in Square Units):{fcc} The minimum size for each pond (in square units of the CRS).</li>"
-            f"<li>{fop}Smooth Pond Outlines:{fcc} Whether to smooth the pond outlines after detection (recommended removes the squares).</li>"
-            f"<li>{fop}Output Ponds:{fcc} The file where the generated vector ponds will be saved.</li>"
-            f"<li>{fop}Output Filled Raster [optional]:{fcc} The file where the output filled raster will be saved.</li>"
-            f"<li>{fop}Output Pond Depth Raster [optional]:{fcc} The file where the output pond depth raster will be saved.</li>"
-            f"<li>{fop}Output Pond Depth Raster (Valid) [optional]:{fcc} The file where the output pond depth raster (valid) will be saved.</li>"
-
+            f"<li>{fop}Input DEM:{fcc} Digital Elevation Model to analyze.</li>"
+            f"<li>{fop}Output Ponds:{fcc} Vector layer containing potential pond locations.</li>"
             "</ul>"
         )
     },
     "CalculateStageStoragePond": {
-        "disp": "Calculate Stage Storage for Ponds",
+        "disp": "Calculate Stage Storage - Pond",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Calculates the stage-storage relationship for pond polygons based on a ground raster. The output is a vector layer with overlapping polygons representing slices of the pond at "
-            "different stages, each with attributes for area and volume. Optionally, an HTML report can be generated to summarize the results."
+            "Calculate stage-storage curves for pond polygons."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Input Ponds Vector Layer:{fcc} The vector layer containing pond polygons.</li>"
-            f"<li>{fop}Input Ground Raster:{fcc} The raster representing ground surface.</li>"
-            f"<li>{fop}Output Stage Storage Slices:{fcc} The file where the output stage storage slices will be saved.</li>"
-            f"<li>{fop}Output Stage Storage HTML Report [optional]:{fcc} The file where the output HTML report will be saved, click the link to open the report at the end.</li>"
-            f"<li>{fop}Vertical Interval (e.g., 0.1):{fcc} The vertical interval between slices (in the units of the CRS).</li>"
-            f"<li>{fop}Pond Max RL Field:{fcc} The field in the ponds layer that contains the maximum RL (elevation) for each pond.</li>"
-            f"<li>{fop}Pond ID Field :{fcc} The field in the ponds layer that uniquely identifies each pond.</li>"         
+            f"<li>{fop}Input Ground Raster:{fcc} DEM representing ground elevations.</li>"
+            f"<li>{fop}Input Ponds Vector:{fcc} Polygon layer representing pond boundaries.</li>"
+            f"<li>{fop}Storage Interval:{fcc} Elevation interval for volume calculations.</li>"
             "</ul>"
-            "<h3>Advanced Parameters</h3>"
-            "<ul>"
-            f"<li>{fop}Elevation Rounding Precision:{fcc} The number of decimal places to round elevations to when processing (default 2).</li>"
-            f"<li>{fop}Area Rounding Precision:{fcc} The number of decimal places to round area values to when calculating (default 0).</li>"
-            f"<li>{fop}Volume Rounding Precision:{fcc} The number of decimal places to round volume values to when calculating (default 0).</li>"
         )
     }
-
 }
 
+
+class CTDQSupport:
+    """
+    Support class for CeeThreeDee QTools with static utility methods.
+    """
+    
+    @staticmethod
+    def get_plugin_dir():
+        """
+        Returns the plugin directory.
+        """
+        return os.path.dirname(os.path.dirname(__file__))
+    
+    @staticmethod
+    def get_global_precision_setting(setting_key, provider_name="CeeThreeDee Qtools"):
+        """
+        Get a global precision setting from QGIS Processing configuration.
+        
+        Args:
+            setting_key: The key from ctdprocessing_settingsdefaults (e.g., 'precision_elevation')
+            provider_name: The processing provider name
+            
+        Returns:
+            The setting value, or the default value if not found
+        """
+        if not QGIS_AVAILABLE:
+            return ctdprocessing_settingsdefaults.get(setting_key, {}).get("value", 3)
+            
+        try:
+            setting_name = setting_key.upper()
+            value = ProcessingConfig.getSetting(f"{provider_name}/{setting_name}")
+            return value if value is not None else ctdprocessing_settingsdefaults[setting_key]["value"]
+        except Exception:
+            # Fallback to default if ProcessingConfig is not available
+            return ctdprocessing_settingsdefaults.get(setting_key, {}).get("value", 3)
+    
+    @staticmethod
+    def get_precision_setting_with_fallback(setting_key, fallback_value=3):
+        """
+        Get a global precision setting with a specific fallback value.
+        
+        Args:
+            setting_key: The key from ctdprocessing_settingsdefaults (e.g., 'ctdq_precision_elevation')
+            fallback_value: Value to use if setting cannot be retrieved (default: 3)
+            
+        Returns:
+            The setting value, or the fallback_value if not found
+        """
+        if not QGIS_AVAILABLE:
+            return ctdprocessing_settingsdefaults.get(setting_key, {}).get("value", fallback_value)
+            
+        try:
+            # Use the setting key directly with CTDQ_ prefix (already uppercase)
+            setting_name = setting_key.upper()
+            value = ProcessingConfig.getSetting(setting_name)
+            
+            if value is not None and str(value).strip() != '':
+                # Try to convert to int if it looks like a number
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    return value
+            
+            # Try the settings defaults
+            if setting_key in ctdprocessing_settingsdefaults:
+                return ctdprocessing_settingsdefaults[setting_key]["value"]
+                
+            return fallback_value
+            
+        except Exception:
+            return fallback_value
+
+
+# Backwards compatibility - create module-level functions that call the class methods
 def get_plugin_dir():
-    """
-    Returns the plugin directory. This function should be called with
-    self.plugin_dir from the provider or plugin class.
-    """
-    return os.path.dirname(os.path.dirname(__file__))
+    """Returns the plugin directory."""
+    return CTDQSupport.get_plugin_dir()
+
+def get_global_precision_setting(setting_key, provider_name="CeeThreeDee Qtools"):
+    """Get a global precision setting from QGIS Processing configuration."""
+    return CTDQSupport.get_global_precision_setting(setting_key, provider_name)
+
+def get_precision_setting_with_fallback(setting_key, fallback_value=3):
+    """Get a global precision setting with a specific fallback value."""
+    return CTDQSupport.get_precision_setting_with_fallback(setting_key, fallback_value)
+
 
 ctdpaths = {  
     "img": os.path.join(get_plugin_dir(), "assets", "img")

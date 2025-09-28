@@ -9,6 +9,7 @@
 ***************************************************************************
 """
 
+# region Imports
 from typing import Any, Optional
 
 from qgis.core import (    
@@ -27,6 +28,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsRasterLayer,
     QgsFeature,
+    QgsField,
     QgsProcessingParameterFolderDestination,
     QgsProcessingParameterRasterLayer,
     QgsProcessingParameterNumber,
@@ -35,7 +37,15 @@ from qgis.core import (
     QgsProcessingParameterBoolean,
     QgsProcessingParameterDefinition,
     QgsProcessingParameterString,
-    QgsVectorFileWriter
+    QgsVectorFileWriter,
+    QgsSimpleFillSymbolLayer,
+    QgsSimpleLineSymbolLayer,
+    QgsFillSymbol,
+    QgsLineSymbol,
+    QgsPalLayerSettings,
+    QgsTextFormat,
+    QgsTextBufferSettings,
+    QgsExpression
 )
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
@@ -44,8 +54,12 @@ import heapq
 import numpy as np
 import processing
 import os
+from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtGui import QColor
+# endregion
 
 class FindRasterPonds(QgsProcessingAlgorithm):
+    # region Class: FindRasterPonds and helpers
     # class-level imports removed; use module-level imports
 
     class PriorityQueue:
@@ -63,7 +77,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
     TOOL_NAME = "FindRasterPonds"
     """
     QGIS Processing Algorithm to detect ponds (sinks) in a raster and output a vector layer with polygons representing the ponds. 
-    Also computes statistics regarding the ponds like maximum and minimum elevation (RLmax, RLmin), pond volume (PONDvolume), 
+    Also computes statistics regarding the ponds like maximum and minimum elevation (PONDRLmax, PONDRLmin), pond volume (PONDvolume), 
     and depth statistics (DEPTH_sum, DEPTH_mean, DEPTH_max).
     """
 
@@ -90,6 +104,9 @@ class FindRasterPonds(QgsProcessingAlgorithm):
     def shortHelpString(self) -> str:
         return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
 
+    # endregion
+
+    # region Algorithm Initialization (initAlgorithm)
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
         """
         Here we define the inputs and output of the algorithm, along
@@ -175,19 +192,62 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             createByDefault=False  # Do not add to viewer by default
         ))
 
+        # Advanced precision parameters
+        elevation_precision_param = QgsProcessingParameterNumber(
+            "ELEVATION_PRECISION",
+            "Elevation Precision (decimal places)",
+            type=QgsProcessingParameterNumber.Integer,
+            defaultValue=3,
+            minValue=0,
+            maxValue=10,
+            optional=True
+        )
+        elevation_precision_param.setFlags(elevation_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(elevation_precision_param)
+
+        area_precision_param = QgsProcessingParameterNumber(
+            "AREA_PRECISION",
+            "Area Precision (decimal places)",
+            type=QgsProcessingParameterNumber.Integer,
+            defaultValue=0,
+            minValue=0,
+            maxValue=10,
+            optional=True
+        )
+        area_precision_param.setFlags(area_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(area_precision_param)
+
+        volume_precision_param = QgsProcessingParameterNumber(
+            "VOLUME_PRECISION",
+            "Volume Precision (decimal places)",
+            type=QgsProcessingParameterNumber.Integer,
+            defaultValue=0,
+            minValue=0,
+            maxValue=10,
+            optional=True
+        )
+        volume_precision_param.setFlags(volume_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(volume_precision_param)
+
     def processAlgorithm(
         self,
         parameters: dict[str, Any],
         context: QgsProcessingContext,
         feedback: QgsProcessingFeedback,
     ) -> dict[str, Any]:      
-
+        # region Process: Setup / Parameters
         # Get input raster and output path
         input_raster = self.parameterAsRasterLayer(parameters, "GROUND_RASTER", context)
         output_raster_path = self.parameterAsOutputLayer(parameters, "OUTPUT_FILLED_RASTER", context)
         output_pond_depth_raster_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER", context)
         output_pond_depth_raster_valid_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER_VALID", context)
         pond_outline_output_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_OUTLINES", context)
+        
+        # Get precision parameters
+        elevation_precision = self.parameterAsInt(parameters, "ELEVATION_PRECISION", context)
+        area_precision = self.parameterAsInt(parameters, "AREA_PRECISION", context)
+        volume_precision = self.parameterAsInt(parameters, "VOLUME_PRECISION", context)
+        
         # If optional outputs weren't provided, write to temp files to avoid empty-path errors
         import tempfile, uuid
         if not output_raster_path:
@@ -199,17 +259,35 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         if not output_pond_depth_raster_valid_path:
             output_pond_depth_raster_valid_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_DEPTH_RASTER_VALID_{uuid.uuid4().hex}.tif")
             feedback.pushInfo(f"No OUTPUT_POND_DEPTH_RASTER_VALID provided; using temporary path: {output_pond_depth_raster_valid_path}")
+        if not pond_outline_output_path:
+            pond_outline_output_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_OUTLINES_{uuid.uuid4().hex}.shp")
+            feedback.pushInfo(f"No OUTPUT_POND_OUTLINES provided; using temporary path: {pond_outline_output_path}")
+
         # Ensure pond outlines vector output path ends with .shp
         if pond_outline_output_path.lower().endswith('.gpkg'):
             pond_outline_output_path = pond_outline_output_path[:-5] + '.shp'
         if not pond_outline_output_path.lower().endswith('.shp'):
             pond_outline_output_path += '.shp'
+        # Determine final vs working pond outlines output
+        # The Processing framework may return the literal string 'TEMPORARY_OUTPUT' when the
+        # user selected a temporary output. Detect that and treat final_output_path as None.
+        final_pond_outline_path = pond_outline_output_path
+        if isinstance(final_pond_outline_path, str) and final_pond_outline_path.upper() == 'TEMPORARY_OUTPUT':
+            final_pond_outline_path = None
+
+        # If a final path was provided and it's a .gpkg, convert to shapefile path
+        if final_pond_outline_path:
+            if final_pond_outline_path.lower().endswith('.gpkg'):
+                final_pond_outline_path = final_pond_outline_path[:-5] + '.shp'
+            if not final_pond_outline_path.lower().endswith('.shp'):
+                final_pond_outline_path += '.shp'
+
         # Log paths for debugging
         feedback.pushInfo(f"Input raster: {input_raster.name()}")
         feedback.pushInfo(f"Output raster path: {output_raster_path}")
         feedback.pushInfo(f"Output pond depth raster path: {output_pond_depth_raster_path}")
         feedback.pushInfo(f"Output valid pond depth raster path: {output_pond_depth_raster_valid_path}")
-        feedback.pushInfo(f"Output pond outlines path: {pond_outline_output_path}")
+        feedback.pushInfo(f"Output working pond outlines path: {pond_outline_output_path}")
         # initialize progress
         try:
             feedback.setProgress(0)
@@ -217,6 +295,9 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             # some feedback implementations may not support setProgress
             pass
 
+        # endregion
+
+        # region Process: Read raster into numpy DEM
         # Get raster properties
         provider = input_raster.dataProvider()
         extent = input_raster.extent()
@@ -274,7 +355,10 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         pass
         feedback.pushInfo(f"dem array shape after read: {dem.shape}, dtype: {dem.dtype}")
 
-        # Initialize priority queue and visited mask (row=y, col=x)
+    # endregion
+
+    # region Process: Sink-fill (priority queue propagation)
+    # Initialize priority queue and visited mask (row=y, col=x)
         pq = self.PriorityQueue()
         visited = np.zeros((height, width), dtype=bool)
         # add top and bottom rows
@@ -428,6 +512,9 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         except Exception:
             pass
 
+        # endregion
+
+        # region Process: Compute and write pond depth rasters
         # Calculate pond depth raster (filled_dem - dem)
         pond_depth = filled_dem - dem       
         # Ensure output directory exists
@@ -540,90 +627,78 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         except Exception:
             pass
 
-        outlines_dir = os.path.dirname(pond_outline_output_path)
-        if outlines_dir and not os.path.exists(outlines_dir):
-            os.makedirs(outlines_dir)
+        # endregion
+
+        # region Process: Polygonize & Filter pond outlines
+        temp_poly_output_path = os.path.join(tempfile.gettempdir(), f"pond_outlines_polygonize_{uuid.uuid4().hex}.shp")
         # Polygonize the valid pond depth raster to vector shapes
         polygonize_params = {
             'INPUT': output_pond_depth_raster_valid_path,
             'BAND': 1,
             'FIELD': 'IsPond',
             'EIGHT_CONNECTEDNESS': False,
-            'OUTPUT': pond_outline_output_path
+            'OUTPUT': temp_poly_output_path
         }
         
         processing.run('gdal:polygonize', polygonize_params, context=context, feedback=feedback)
-        feedback.pushInfo(f"Pond outlines vector layer written to: {pond_outline_output_path}")
+        feedback.pushInfo(f"Pond outlines vector layer written to: {temp_poly_output_path}")
         try:
             feedback.setProgress(90)
         except Exception:
             pass
 
-        # After polygonize, filter polygons to keep only those with IsPond == 1
-        
-        pond_layer = QgsVectorLayer(pond_outline_output_path, "PondOutlines", "ogr")
-        if pond_layer.isValid():
-            pond_layer.startEditing()
-            ids_to_delete = [f.id() for f in pond_layer.getFeatures() if f["IsPond"] != 1]
-            pond_layer.deleteFeatures(ids_to_delete)
-            pond_layer.commitChanges()
-            # Optionally, overwrite the file with the filtered layer
-            QgsVectorFileWriter.writeAsVectorFormat(pond_layer, pond_outline_output_path, "utf-8", pond_layer.crs(), "ESRI Shapefile")
-            feedback.pushInfo(f"Filtered pond outlines written to: {pond_outline_output_path}")
-        else:
-            feedback.reportError(f"Could not load pond outlines layer for filtering: {pond_outline_output_path}")
-
-        # Further filter ponds by minimum area (in CRS units) so downstream stats skip tiny ponds
+        # After polygonize, filter polygons to keep only those with IsPond == 1 we can also filter by area here as well
         try:
             min_area = float(self.parameterAsDouble(parameters, "MIN_AREA", context))
         except Exception:
             min_area = 500.0
+        
+        pond_layer = QgsVectorLayer(temp_poly_output_path, "PondOutlines", "ogr")
+        if pond_layer.isValid():
+            pond_layer.startEditing()
+            ids_to_delete = []
+            for f in pond_layer.getFeatures():
+                try:
+                    is_pond = f["IsPond"]
+                except Exception:
+                    is_pond = None
+                try:
+                    geom = f.geometry()
+                    area = geom.area() if geom is not None else 0
+                except Exception:
+                    area = 0
+                if is_pond != 1 or area < min_area:
+                    ids_to_delete.append(f.id())
+            pond_layer.deleteFeatures(ids_to_delete)
+            pond_layer.commitChanges()
+        else:
+            feedback.reportError(f"Could not load pond outlines layer for filtering: {temp_poly_output_path}")
+
+        # Add Pond ID field
+        
         try:
-            pond_layer_area = QgsVectorLayer(pond_outline_output_path, "PondOutlinesAreaFilter", "ogr")
-            if pond_layer_area.isValid():
-                pond_layer_area.startEditing()
-                small_ids = []
-                for feat in pond_layer_area.getFeatures():
-                    try:
-                        geom = feat.geometry()
-                        if geom is None:
-                            small_ids.append(feat.id())
-                            continue
-                        # geometry area is in layer CRS units
-                        area = geom.area()
-                        if area < min_area:
-                            small_ids.append(feat.id())
-                    except Exception as e:
-                        feedback.pushInfo(f"Error evaluating area for feature {feat.id()}: {e}")
-                if small_ids:
-                    pond_layer_area.deleteFeatures(small_ids)
-                    pond_layer_area.commitChanges()
-                    # overwrite shapefile with area-filtered results
-                    QgsVectorFileWriter.writeAsVectorFormat(pond_layer_area, pond_outline_output_path, "utf-8", pond_layer_area.crs(), "ESRI Shapefile")
-                    feedback.pushInfo(f"Removed {len(small_ids)} pond features smaller than MIN_AREA={min_area} and updated shapefile.")
-                else:
-                    pond_layer_area.rollBack()
-                    feedback.pushInfo(f"No pond features smaller than MIN_AREA={min_area} found.")
+            pond_layer_area = QgsVectorLayer(temp_poly_output_path, "PondOutlinesAreaFilter", "ogr")
 
-                # Add a new field "PONDid" to assign unique IDs to each pond
-                pond_layer_area.startEditing()
-                if "PONDid" not in [field.name() for field in pond_layer_area.fields()]:
-                    pond_layer_area.dataProvider().addAttributes([QgsField("PONDid", QVariant.String)])
-                    pond_layer_area.updateFields()
+            # Add a new field "PONDid" to assign unique IDs to each pond
+            pond_layer_area.startEditing()
+            if "PONDid" not in [field.name() for field in pond_layer_area.fields()]:
+                # Use modern QgsField constructor with proper parameter naming
+                pondid_field = QgsField(name="PONDid", type=QVariant.String)
+                pond_layer_area.dataProvider().addAttributes([pondid_field])
+                pond_layer_area.updateFields()
 
-                # Assign unique IDs (P1, P2, P3, ...) to each pond
-                for i, feature in enumerate(pond_layer_area.getFeatures(), start=1):
-                    feature.setAttribute("PONDid", f"P{i}")
-                    pond_layer_area.updateFeature(feature)
+            # Assign unique IDs (P1, P2, P3, ...) to each pond
+            for i, feature in enumerate(pond_layer_area.getFeatures(), start=1):
+                feature.setAttribute("PONDid", f"P{i}")
+                pond_layer_area.updateFeature(feature)
 
-                pond_layer_area.commitChanges()
-                feedback.pushInfo("Assigned unique IDs (PONDid) to each pond.")
-            else:
-                feedback.reportError(f"Could not load pond outlines layer for filtering: {pond_outline_output_path}")
+            pond_layer_area.commitChanges()
+            feedback.pushInfo("Assigned unique IDs (PONDid) to each pond.")
         except Exception as e:
-            feedback.pushInfo(f"Exception during MIN_AREA filtering: {e}")
+            feedback.pushWarning(f"Exception during MIN_AREA filtering: {e}")
 
-        # Optionally smooth the pond outlines using QGIS generalize algorithm
+        # Optionally smooth the pond outlines using QGIS smoothgeometry algorithm
+        temp_poly_output_path  # default to unsmoothed
         try:
             do_gen = self.parameterAsBoolean(parameters, "GENERALIZE_OUTLINES", context)
         except Exception:
@@ -633,7 +708,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 import tempfile
                 gen_out = os.path.join(tempfile.gettempdir(), f"pond_outlines_gen_{uuid.uuid4().hex}.shp")
                 gen_params = {
-                    'INPUT': pond_outline_output_path,
+                    'INPUT': temp_poly_output_path,
                     'ITERATIONS': 1,
                     'MAX_ANGLE': 180,
                     'OFFSET': 0.5,
@@ -642,48 +717,53 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 processing.run('qgis:smoothgeometry', gen_params, context=context, feedback=feedback)
                 # replace the outline path with the smoothed version for downstream steps
                 if os.path.exists(gen_out):
-                    pond_outline_output_path = gen_out
-                    feedback.pushInfo(f"Smoothed pond outlines written to: {pond_outline_output_path}")
+                    feedback.pushInfo(f"Smoothed pond outlines written to: {gen_out}")
+                    temp_poly_output_path = gen_out
             except Exception as e:
                 feedback.pushInfo(f"Smooth step failed or not available: {e}")
 
-        # Use QGIS Processing algorithm for zonal statistics instead of QgsZonalStatistics
+    # endregion
+
+    # region Process: Zonal statistics and field calculations
+    # Use QGIS Processing algorithm for zonal statistics instead of QgsZonalStatistics
         zonal_params = {
             'INPUT_RASTER': output_raster_path,
             'RASTER_BAND': 1,
-            'INPUT_VECTOR': pond_outline_output_path,
-            'COLUMN_PREFIX': 'RL',
+            'INPUT_VECTOR': temp_poly_output_path,
+            'COLUMN_PREFIX': 'tP',
             'STATISTICS': [6]  # 6 = Maximum
         }
         
         processing.run('qgis:zonalstatistics', zonal_params, context=context, feedback=feedback)
-        feedback.pushInfo("Added RLmax zonal statistics to pond outlines layer using qgis:zonalstatistics.")
+        feedback.pushInfo("Added Pond zonal statistics to pond outlines layer using qgis:zonalstatistics.")
 
         # Also compute zonal statistics for pond depth raster: sum, count, mean, min, max
         depth_zonal_params = {
             'INPUT_RASTER': output_pond_depth_raster_path,
             'RASTER_BAND': 1,
-            'INPUT_VECTOR': pond_outline_output_path,
-            'COLUMN_PREFIX': 'DEPTH',
+            'INPUT_VECTOR': temp_poly_output_path,
+            'COLUMN_PREFIX': 'tD',
             # qgis:zonalstatistics STATISTICS codes: 1=sum,2=mean,3=median,6=max
             'STATISTICS': [1, 2, 3, 6]
         }
         processing.run('qgis:zonalstatistics', depth_zonal_params, context=context, feedback=feedback)
-        feedback.pushInfo("Added DEPTH zonal statistics (sum,count,mean,min,max) to pond outlines layer using qgis:zonalstatistics.")
+        feedback.pushInfo("Added Pond Depth zonal statistics (sum,count,mean,min,max) to pond outlines layer using qgis:zonalstatistics.")
         try:
             feedback.setProgress(95)
         except Exception:
             pass
 
-        # Compute RLmin = RLmax - DEPTH_max and PONDvolume = DEPTH_sum * pixel_area
+        # Compute PONDRLmin = PONDRLmax - DEPTH_max and PONDvolume = DEPTH_sum * pixel_area
         try:
-            from qgis.PyQt.QtCore import QVariant
-            from qgis.core import QgsField
-
-            pond_layer_upd = QgsVectorLayer(pond_outline_output_path, "PondOutlinesForStats", "ogr")
+            # Load the layer after zonal statistics have been added
+            pond_layer_upd = QgsVectorLayer(temp_poly_output_path, "PondOutlinesForStats", "ogr")
             if not pond_layer_upd.isValid():
-                feedback.reportError(f"Could not open pond outlines layer for stat post-processing: {pond_outline_output_path}")
+                feedback.reportError(f"Could not open pond outlines layer for stat post-processing: {temp_poly_output_path}")
             else:
+                # Debug: List all fields to see what was actually created
+                all_fields = [f.name() for f in pond_layer_upd.fields()]
+                feedback.pushInfo(f"All fields in layer: {all_fields}")
+                
                 # determine pixel area from geotransform
                 try:
                     if geotransform is not None:
@@ -704,11 +784,11 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         target = f"{prefix}_{kw}".lower()
                         if target in low_names:
                             return names[low_names.index(target)]
-                    # try prefix+kw without underscore
-                    for kw in keywords:
-                        target = f"{prefix}{kw}".lower()
-                        if target in low_names:
-                            return names[i]
+                        # try prefix+kw without underscore
+                        for kw in keywords:
+                            target = f"{prefix}{kw}".lower()
+                            if target in low_names:
+                                return names[low_names.index(target)]
                     # fallback: find any field that starts with prefix and contains any keyword
                     for i, n in enumerate(low_names):
                         if n.startswith(prefix.lower()):
@@ -717,130 +797,313 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                                     return names[i]
                     return None
 
-                rlmax_field = find_field(pond_layer_upd, 'RL', ['max', 'maximum'])
-                depth_sum_field = find_field(pond_layer_upd, 'DEPTH', ['sum', 'total'])
-                depth_max_field = find_field(pond_layer_upd, 'DEPTH', ['max', 'maximum'])
+                # Find all temporary zonal statistics fields (with improved field detection)
+                rlmax_field = find_field(pond_layer_upd, 'tP', ['max', 'maximum'])
+                depth_sum_field = find_field(pond_layer_upd, 'tD', ['sum', 'total'])
+                depth_max_field = find_field(pond_layer_upd, 'tD', ['max', 'maximum'])
+                depth_mean_field = find_field(pond_layer_upd, 'tD', ['mean', 'average'])
+                depth_median_field = find_field(pond_layer_upd, 'tD', ['median', 'med'])                
 
-                # Add RLmin and PONDvolume fields if not present
-                new_fields = []
-                if 'RLmin' not in [f.name() for f in pond_layer_upd.fields()]:
-                    new_fields.append(QgsField('RLmin', QVariant.Double))
-                if 'PONDvolume' not in [f.name() for f in pond_layer_upd.fields()]:
-                    new_fields.append(QgsField('PONDvolume', QVariant.Double))
-                if new_fields:
-                    dp = pond_layer_upd.dataProvider()
-                    dp.addAttributes(new_fields)
-                    pond_layer_upd.updateFields()
-                
-                # Add PONDarea field if not present
-                if 'PONDarea' not in [f.name() for f in pond_layer_upd.fields()]:
-                    pond_layer_upd.dataProvider().addAttributes([QgsField('PONDarea', QVariant.Double)])
-                    pond_layer_upd.updateFields()
-                    # Compute PONDarea for each feature
-                    pond_layer_upd.startEditing()
-                    for feat in pond_layer_upd.getFeatures():
-                        try:
-                            geom = feat.geometry()
-                            if geom is not None:
-                                area = geom.area()  # in layer CRS units
-                                feat.setAttribute('PONDarea', area)
-                                pond_layer_upd.updateFeature(feat)
-                        except Exception as e:
-                            feedback.pushInfo(f"Error computing PONDarea for feature {feat.id()}: {e}")
-                    pond_layer_upd.commitChanges()
+                feedback.pushInfo(f"Found temporary fields - tPmax: {rlmax_field}, tD fields: max={depth_max_field}, sum={depth_sum_field}, mean={depth_mean_field}, median={depth_median_field}")
 
-                # Now iterate features and compute values
+                # Ensure required output fields exist (use provider.addAttributes)
+                provider = pond_layer_upd.dataProvider()
+                existing = [f.name() for f in pond_layer_upd.fields()]
+                fields_to_add = []
+                def add_if_missing(name, qtype, length=15, prec=0):
+                    if name not in existing:
+                        fields_to_add.append(QgsField(name, qtype, len=length, prec=prec))
+
+                add_if_missing('PONDRLmax', QVariant.Double, 30, elevation_precision)
+                add_if_missing('PONDRLmin', QVariant.Double, 30, elevation_precision)
+                add_if_missing('PONDarea', QVariant.Double, 30, area_precision)
+                add_if_missing('PONDvolume', QVariant.Double, 30, volume_precision)
+                add_if_missing('DPTHmax', QVariant.Double, 30, elevation_precision)
+                add_if_missing('DPTHmean', QVariant.Double, 30, elevation_precision)
+                add_if_missing('DPTHmedian', QVariant.Double, 30, elevation_precision)
+
+                if fields_to_add:
+                    provider.addAttributes(fields_to_add)
+                    pond_layer_upd.updateFields()
+                    feedback.pushInfo(f"Added new fields: {[f.name() for f in fields_to_add]}")
+
+                # Build field index map
+                fld_idx = {f.name(): i for i, f in enumerate(pond_layer_upd.fields())}
+
+                # Start editing and set attributes per feature using changeAttributeValue
                 pond_layer_upd.startEditing()
-                total_feats = max(1, pond_layer_upd.featureCount())
-                for i, feat in enumerate(pond_layer_upd.getFeatures()):
-                    if feedback.isCanceled():
-                        feedback.pushInfo("Processing canceled during feature attribute computation.")
-                        pond_layer_upd.rollBack()
-                        return {}
-                    attrs = {}
+                per_feature_failures = []
+                changes_map = {}  # fallback map of fid -> {idx: val}
+                for feature in pond_layer_upd.getFeatures():
+                    fid = feature.id()
                     try:
-                        rlmax = None
-                        if rlmax_field:
-                            rlmax = feat[rlmax_field]
-                        depth_max = None
-                        if depth_max_field:
-                            depth_max = feat[depth_max_field]
-                        depth_sum = None
-                        if depth_sum_field:
-                            depth_sum = feat[depth_sum_field]
-
-                        rlmin_val = None
-                        if rlmax is not None and depth_max is not None:
+                        # helper to safely parse floats
+                        def sf(v):
                             try:
-                                rlmin_val = float(rlmax) - float(depth_max)
+                                return None if v is None else float(v)
                             except Exception:
-                                rlmin_val = None
+                                return None
 
-                        pondvol_val = None
-                        if depth_sum is not None:
+                        rlmax_val = sf(feature[rlmax_field]) if rlmax_field in feature.fields().names() else None
+                        dsum_val = sf(feature[depth_sum_field]) if depth_sum_field in feature.fields().names() else None
+                        dmax_val = sf(feature[depth_max_field]) if depth_max_field in feature.fields().names() else None
+                        dmean_val = sf(feature[depth_mean_field]) if depth_mean_field in feature.fields().names() else None
+                        dmed_val = sf(feature[depth_median_field]) if depth_median_field in feature.fields().names() else None
+
+                        # prepare per-feature dict for fallback
+                        attrs = {}
+
+                        if 'PONDRLmax' in fld_idx:
+                            val = round(rlmax_val, elevation_precision) if rlmax_val is not None else None
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDRLmax'], val)
+                            attrs[fld_idx['PONDRLmax']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'PONDRLmax', val))
+
+                        if 'DPTHmax' in fld_idx and dmax_val is not None:
+                            val = round(dmax_val, elevation_precision)
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmax'], val)
+                            attrs[fld_idx['DPTHmax']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'DPTHmax', val))
+
+                        if 'DPTHmean' in fld_idx and dmean_val is not None:
+                            val = round(dmean_val, elevation_precision)
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmean'], val)
+                            attrs[fld_idx['DPTHmean']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'DPTHmean', val))
+
+                        if 'DPTHmedian' in fld_idx and dmed_val is not None:
+                            val = round(dmed_val, elevation_precision)
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmedian'], val)
+                            attrs[fld_idx['DPTHmedian']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'DPTHmedian', val))
+
+                        # PONDRLmin = PONDRLmax - DPTHmax
+                        if 'PONDRLmin' in fld_idx:
+                            if rlmax_val is not None and dmax_val is not None:
+                                val = round(rlmax_val - dmax_val, elevation_precision)
+                            else:
+                                val = None
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDRLmin'], val)
+                            attrs[fld_idx['PONDRLmin']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'PONDRLmin', val))
+
+                        # PONDvolume = DEPTH_sum * pixel_area
+                        if 'PONDvolume' in fld_idx:
+                            if dsum_val is not None and pixel_area is not None:
+                                val = round(dsum_val * pixel_area, volume_precision)
+                            else:
+                                val = None
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDvolume'], val)
+                            attrs[fld_idx['PONDvolume']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'PONDvolume', val))
+
+                        # PONDarea
+                        if 'PONDarea' in fld_idx:
                             try:
-                                pondvol_val = float(depth_sum) * float(pixel_area)
+                                geom = feature.geometry()
+                                area_val = geom.area() if geom is not None else None
+                                val = round(area_val, area_precision) if area_val is not None else None
                             except Exception:
-                                pondvol_val = None
+                                val = None
+                            ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDarea'], val)
+                            attrs[fld_idx['PONDarea']] = val
+                            if not ok:
+                                per_feature_failures.append((fid, 'PONDarea', val))
 
-                        # set attributes
-                        if rlmin_val is not None:
-                            feat.setAttribute('RLmin', rlmin_val)
-                        if pondvol_val is not None:
-                            feat.setAttribute('PONDvolume', pondvol_val)
-                        pond_layer_upd.updateFeature(feat)
-                    except Exception as e:
-                        feedback.pushInfo(f"Failed computing RLmin/PONDvolume for feature {feat.id()}: {e}")
-                    # update progress in this loop
-                    if (i % max(1, int(total_feats / 20))) == 0:
-                        try:
-                            pct = 95 + int((i / float(total_feats)) * 5)
-                            feedback.setProgress(min(100, pct))
-                        except Exception:
-                            pass
-                pond_layer_upd.commitChanges()
+                        # store for fallback
+                        if attrs:
+                            changes_map[fid] = attrs
+
+                    except Exception as fe:
+                        feedback.pushInfo(f"Feature {fid} processing error: {fe}")
+
+                # Try to commit edits
+                committed = False
                 try:
-                    feedback.setProgress(100)
+                    committed = pond_layer_upd.commitChanges()
+                except Exception as ce:
+                    feedback.pushWarning(f"commitChanges() raised exception: {ce}")
+
+                if not committed:
+                    feedback.pushWarning(f"commitChanges failed; trying provider.changeAttributeValues() fallback. Per-feature failures: {len(per_feature_failures)}")
+                    # Attempt fallback via dataProvider.changeAttributeValues
+                    try:
+                        prov = pond_layer_upd.dataProvider()
+                        prov.changeAttributeValues(changes_map)
+                        feedback.pushInfo("Fallback attribute update via provider.changeAttributeValues succeeded.")
+                    except Exception as prov_e:
+                        feedback.pushWarning(f"Fallback provider.changeAttributeValues failed: {prov_e}")
+                else:
+                    feedback.pushInfo("Computed PONDRLmin and PONDvolume fields (committed).")
+
+                # now lets open the layer for eidting again and remove temporary fields
+                field_to_delete = ['IsPond', rlmax_field, depth_sum_field, depth_max_field, depth_mean_field, depth_median_field]
+                field_to_delete_index = [pond_layer_upd.fields().indexFromName(column) for column in field_to_delete if column in pond_layer_upd.fields().names()]
+                if len(field_to_delete_index) > 0:
+                    pond_layer_upd.startEditing()
+                    pond_layer_upd.dataProvider().deleteAttributes(field_to_delete_index)
+                    pond_layer_upd.commitChanges()
+                    feedback.pushInfo(f"Deleted temporary fields: {field_to_delete}")
+
+                # Update progress and clean up temporary fields
+                try:
+                    feedback.setProgress(95)
                 except Exception:
-                    pass
-                # Remove the DEPTH_sum field (if present) to avoid confusing users
-                try:
-                    if depth_sum_field:
-                        idx = pond_layer_upd.fields().indexFromName(depth_sum_field)
-                        if idx != -1:
-                            pond_layer_upd.startEditing()
-                            pond_layer_upd.dataProvider().deleteAttributes([idx])
-                            pond_layer_upd.updateFields()
-                            pond_layer_upd.commitChanges()
-                            feedback.pushInfo(f"Removed field '{depth_sum_field}' from pond outlines.")
-                except Exception as e:
-                    feedback.pushInfo(f"Could not remove DEPTH_sum field: {e}")
-
-                # overwrite shapefile with updated attributes
-                QgsVectorFileWriter.writeAsVectorFormat(pond_layer_upd, pond_outline_output_path, "utf-8", pond_layer_upd.crs(), "ESRI Shapefile")
-                feedback.pushInfo("Computed RLmin and PONDvolume and wrote updated pond outlines shapefile.")
+                    pass       
+                    
         except Exception as e:
-            feedback.pushInfo(f"Exception during RLmin/PONDvolume computation: {e}")
+            feedback.pushWarning(f"Exception during PONDRLmin/PONDvolume computation: {e}")
 
-        # Optionally add pond outlines to project
-        add_outlines = self.parameterAsEnum(parameters, "ADD_OUTLINES_TO_PROJECT", context)
-        if add_outlines == 1:  # "Yes"            
-            layer = QgsVectorLayer(pond_outline_output_path, "Pond Outlines", "ogr")
-            if layer.isValid():
-                QgsProject.instance().addMapLayer(layer)
-                feedback.pushInfo("Pond outlines layer added to project.")
+        # endregion
+
+        # Defer writing to final output. At this point we have a working shapefile
+        # indicated by temp_poly_output_path. Ensure pond_outline_output_path points
+        # to the working shapefile so downstream finalization/styling uses the
+        # correct source. We avoid writing here to prevent duplicate writes and
+        # potential OGR-in-place overwrite issues.
+        try:
+            if not pond_layer_upd.isValid():
+                feedback.pushWarning(f"Working pond outlines layer invalid; cannot proceed to finalization: {temp_poly_output_path}")
             else:
-                feedback.reportError(f"Could not add pond outlines layer to project: {pond_outline_output_path}")
+                # If the layer has a valid data source, prefer that; otherwise use the temp path
+                try:
+                    src = pond_layer_upd.dataProvider().dataSourceUri()
+                    pond_outline_output_path = src if src else temp_poly_output_path
+                except Exception:
+                    pond_outline_output_path = temp_poly_output_path
+                feedback.pushInfo(f"Using working pond outlines path: {pond_outline_output_path}")
+        except Exception as e:
+            feedback.pushWarning(f"Could not determine working pond outlines path: {e}")
 
-        # Optionally open pond outlines after running algorithm
+        # region Process: Styling & Add to Project
+        def apply_pond_styling(layer):
+            """Apply blue styling and labels to pond layer"""
+            try:
+                # Create fill symbol with light blue fill and blue outline
+                fill_symbol = QgsFillSymbol.createSimple({
+                    'color': '173,216,230,128',  # Light blue with 50% transparency (alpha=128)
+                    'outline_color': '0,0,255,255',  # Blue outline
+                    'outline_width': '0.5',
+                    'outline_style': 'solid'
+                })
+                
+                # Apply the symbol to the layer
+                layer.renderer().setSymbol(fill_symbol)
+                
+                # Set up labeling
+                label_settings = QgsPalLayerSettings()
+                
+                # Create text format
+                text_format = QgsTextFormat()
+                text_format.setFont(text_format.font())
+                text_format.setSize(10)
+                text_format.setColor(QColor(0, 0, 0))  # Black text
+                
+                # Set up text buffer (white halo)
+                buffer_settings = QgsTextBufferSettings()
+                buffer_settings.setEnabled(True)
+                buffer_settings.setSize(1.5)
+                buffer_settings.setColor(QColor(255, 255, 255))  # White buffer
+                text_format.setBuffer(buffer_settings)
+                
+                # Apply text format to label settings
+                label_settings.setFormat(text_format)
+                
+                # Set label expression: PONDid on first line, volume on second line
+                label_expression = '"PONDid" || \'\\n\' || \'Vol =\' || "PONDvolume"'
+                label_settings.fieldName = label_expression
+                label_settings.isExpression = True
+                
+                # Position labels in center of polygons (use polygon-specific placement)
+                try:
+                    # For polygon features, use Horizontal placement
+                    label_settings.placement = QgsPalLayerSettings.Horizontal
+                    feedback.pushInfo("Using Horizontal label placement for polygons")
+                except Exception as placement_error:
+                    feedback.pushInfo(f"Horizontal placement failed: {placement_error}, trying alternative")
+                    try:
+                        # Alternative placement
+                        label_settings.placement = 0  # Use numeric value for default
+                    except:
+                        feedback.pushInfo("Using default label placement")
+                
+                # Enable labeling
+                label_settings.enabled = True
+                
+                # Apply labeling to layer
+                labeling = QgsVectorLayerSimpleLabeling(label_settings)
+                layer.setLabelsEnabled(True)
+                layer.setLabeling(labeling)
+                
+                # Trigger layer repaint
+                layer.triggerRepaint()
+                
+                return True
+            except Exception as e:
+                feedback.pushInfo(f"Could not apply styling to pond layer: {e}")
+                return False
+
+        # Optionally open pond outlines after running algorithm (always apply styling when added)
+        # If the user provided a final output path, move/copy the working shapefile to that location now.
+        # This prevents polygonize and intermediate steps from writing directly to the final path
+        # which can cause "Cannot overwrite an OGR layer in place" errors.
+        try:
+            if final_pond_outline_path:
+                # Ensure destination directory exists
+                dest_dir = os.path.dirname(final_pond_outline_path)
+                if dest_dir and not os.path.exists(dest_dir):
+                    os.makedirs(dest_dir)
+                # If destination exists, remove the files making up the shapefile to allow overwrite
+                for ext in ('.shp', '.shx', '.dbf', '.prj', '.cpg'):
+                    p = final_pond_outline_path[:-4] + ext if final_pond_outline_path.lower().endswith('.shp') else final_pond_outline_path + ext
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            feedback.pushInfo(f"Could not remove existing file: {p}; will attempt to overwrite via writer.")
+
+                # Use QgsVectorFileWriter to write working layer to final path
+                try:
+                    working_layer = QgsVectorLayer(pond_outline_output_path, "PondOutlinesWorking", "ogr")
+                    if not working_layer.isValid():
+                        feedback.pushWarning(f"Working pond outlines layer invalid; cannot write final output: {pond_outline_output_path}")
+                    else:
+                        save_options = QgsVectorFileWriter.SaveVectorOptions()
+                        save_options.driverName = "ESRI Shapefile"
+                        save_options.fileEncoding = "utf-8"
+                        error = QgsVectorFileWriter.writeAsVectorFormatV2(working_layer, final_pond_outline_path, working_layer.transformContext(), save_options)
+                        if error[0] == QgsVectorFileWriter.NoError:
+                            feedback.pushInfo(f"Final pond outlines written to: {final_pond_outline_path}")
+                            # set the path used to add to project to the final path
+                            pond_outline_output_path = final_pond_outline_path
+                        else:
+                            feedback.reportError(f"Error writing final pond outlines: {error[1]}")
+                except Exception as e:
+                    feedback.pushWarning(f"Could not write final pond outlines: {e}")
+        except Exception:
+            # Non-fatal
+            pass
+
         open_outlines = self.parameterAsBoolean(parameters, "OPEN_OUTLINES_AFTER_RUN", context)
         if open_outlines:            
             layer = QgsVectorLayer(pond_outline_output_path, "Pond Outlines", "ogr")
             if layer.isValid():
                 QgsProject.instance().addMapLayer(layer)
-                feedback.pushInfo("Pond outlines layer added to project.")
+                # Apply blue styling and labels
+                if apply_pond_styling(layer):
+                    feedback.pushInfo("Pond outlines layer added to project with styling and labels.")
+                else:
+                    feedback.pushInfo("Pond outlines layer added to project.")
             else:
                 feedback.reportError(f"Could not add pond outlines layer to project: {pond_outline_output_path}")
+
+        # endregion
 
         return {
             "OUTPUT_FILLED_RASTER": output_raster_path,

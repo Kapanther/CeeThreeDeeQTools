@@ -34,7 +34,7 @@ from qgis.core import QgsProcessingProvider
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
-from .ctdq_support import ctdprocessing_info, ctdpaths, get_plugin_dir
+from .ctdq_support import ctdprocessing_settingsdefaults
 from .Processing.ctdq_ExportDataSourcesMap import ExportDataSourcesMap
 from .Processing.ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
 from .Processing.ctdq_ExportProjectLayerStyles import ExportProjectLayerStyles
@@ -63,6 +63,17 @@ class CTDQProvider(QgsProcessingProvider):
         """
         ProcessingConfig.settingIcons[self.name()] = self.icon()        
         ProcessingConfig.addSetting(Setting(self.name(), "CTDTOOLS_ACTIVATED", "Activate", True))
+        
+        # Add global processing settings from ctdprocessing_settingsdefaults
+        for setting_key, setting_data in ctdprocessing_settingsdefaults.items():
+            setting_name = setting_key.upper()  # Convert to uppercase for consistency
+            # Register as global settings - use empty string for group to make them global
+            ProcessingConfig.addSetting(Setting(
+                self.name(), 
+                setting_name, 
+                setting_data["display_name"], 
+                setting_data["value"]
+            ))
 
         ProcessingConfig.readSettings()
         return super().load()

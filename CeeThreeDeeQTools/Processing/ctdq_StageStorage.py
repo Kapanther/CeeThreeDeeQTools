@@ -50,7 +50,7 @@ from qgis.core import (
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
-from ..ctdq_support import ctdprocessing_info
+from ..ctdq_support import ctdprocessing_info, ctdprocessing_settingsdefaults, CTDQSupport
 import processing  # Import processing for running algorithms
 
 
@@ -67,9 +67,6 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
     DEFAULT_STORAGE_INTERVAL = 1  # Interval for stage slices
     OUTPUT_STAGE_STORAGE = "OUTPUT_STAGE_STORAGE"
     POND_ID_FIELD = "POND_ID_FIELD"
-    PRECISION_ELEVATION = "PRECISION_ELEVATION"
-    PRECISION_AREA = "PRECISION_AREA"
-    PRECISION_VOL = "PRECISION_VOL"
     OUTPUT_HTML_REPORT = "OUTPUT_HTML_REPORT"
 
     def name(self):
@@ -125,7 +122,7 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterField(
                 self.POND_ID_FIELD,
-                self.tr("Pond ID Field"),
+                self.tr("Input Pond ID Field"),
                 None,
                 self.INPUT_PONDS_VECTOR,
                 QgsProcessingParameterField.Any,
@@ -154,37 +151,6 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             )
         )
 
-        # Add advanced parameters for precision
-        precision_elevation_param = QgsProcessingParameterNumber(
-            self.PRECISION_ELEVATION,
-            "Precision for Elevation",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=2,
-            optional=True
-        )
-        precision_elevation_param.setFlags(precision_elevation_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(precision_elevation_param)
-
-        precision_area_param = QgsProcessingParameterNumber(
-            self.PRECISION_AREA,
-            "Precision for Area",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=0,
-            optional=True
-        )
-        precision_area_param.setFlags(precision_area_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(precision_area_param)
-
-        precision_vol_param = QgsProcessingParameterNumber(
-            self.PRECISION_VOL,
-            "Precision for Volume",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=0,
-            optional=True
-        )
-        precision_vol_param.setFlags(precision_vol_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(precision_vol_param)
-
         self.addParameter(
             QgsProcessingParameterFileDestination(
                 self.OUTPUT_HTML_REPORT,
@@ -210,10 +176,14 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         storage_interval = self.parameterAsDouble(parameters, self.STORAGE_INTERVAL, context)
         output_layer = self.parameterAsOutputLayer(parameters, self.OUTPUT_STAGE_STORAGE, context)
         pond_id_field = self.parameterAsString(parameters, self.POND_ID_FIELD, context)
-        precision_elevation = self.parameterAsInt(parameters, self.PRECISION_ELEVATION, context)
-        precision_area = self.parameterAsInt(parameters, self.PRECISION_AREA, context)
-        precision_vol = self.parameterAsInt(parameters, self.PRECISION_VOL, context)
         output_html_report = self.parameterAsFile(parameters, self.OUTPUT_HTML_REPORT, context)
+        
+        # Get precision values from global settings with fallback to 3 decimal places
+        precision_elevation = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_elevation", 3)
+        precision_area = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_area", 3)
+        precision_vol = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_volume", 3)
+            
+        feedback.pushInfo(f"Using precision settings - Elevation: {precision_elevation}, Area: {precision_area}, Volume: {precision_vol}")
         feedback.pushInfo(f"Using Pond ID Field: {pond_id_field}")
 
         if not ground_raster or not ponds_layer:
@@ -264,14 +234,36 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             )
             ponds_layer.removeSelection()
 
+            # Calculate buffer distance as 2x the cell size of the input raster
+            pixel_size_x = ground_raster.rasterUnitsPerPixelX()
+            pixel_size_y = ground_raster.rasterUnitsPerPixelY()
+            # Use the maximum of the two pixel sizes for the buffer distance
+            buffer_distance = 2 * max(abs(pixel_size_x), abs(pixel_size_y))
+            feedback.pushInfo(f"Using buffer distance: {buffer_distance} (2x max cell size)")
+
+            # Create a buffered version of the current pond polygon to avoid square edges in contour polygons
+            temp_buffered_pond = os.path.join(tempfile.gettempdir(), f"buffered_pond_{pond_id}_{run_uuid}.gpkg")
+            feedback.pushInfo(f"Buffering pond polygon by {buffer_distance} units...")
+            buffer_params = {
+                'INPUT': temp_current_pond,
+                'DISTANCE': buffer_distance,
+                'SEGMENTS': 8,  # Number of segments for rounded corners
+                'END_CAP_STYLE': 0,  # Round
+                'JOIN_STYLE': 0,  # Round
+                'MITER_LIMIT': 2,
+                'DISSOLVE': False,
+                'OUTPUT': temp_buffered_pond
+            }
+            processing.run("native:buffer", buffer_params, context=context, feedback=feedback)
+
             # Create a temporary file for the clipped raster
             temp_clipped_raster = os.path.join(tempfile.gettempdir(), f"clipped_raster_{pond_id}_{run_uuid}.tif")
 
-            # Clip the ground raster to the current pond polygon
-            feedback.pushInfo(f"Clipping ground raster for Pond ID: {pond_id}...")
+            # Clip the ground raster to the buffered pond polygon (not the original)
+            feedback.pushInfo(f"Clipping ground raster for Pond ID: {pond_id} using buffered polygon...")
             clip_params = {
                 'INPUT': ground_raster.dataProvider().dataSourceUri(),
-                'MASK': temp_current_pond,
+                'MASK': temp_buffered_pond,  # Use buffered pond instead of original
                 'NODATA': -32567,
                 'KEEP_RESOLUTION': True,
                 'OUTPUT': temp_clipped_raster
@@ -308,8 +300,19 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             }
             processing.run("native:fixgeometries", fix_geometry_params, context=context, feedback=feedback)
 
-            # Process fixed contour polygons to calculate ssAREA, ssINCVOL, and ssCUMVOL
-            fixed_layer = QgsVectorLayer(temp_fixed_contours, f"Fixed Contours {pond_id}", "ogr")
+            # Clip the fixed contour polygons back to the original pond boundary (not buffered)
+            # This ensures we only calculate volumes within the actual pond area
+            temp_clipped_contours = os.path.join(tempfile.gettempdir(), f"clipped_contours_{pond_id}_{run_uuid}.gpkg")
+            feedback.pushInfo(f"Clipping contour polygons to original pond boundary for Pond ID: {pond_id}...")
+            clip_contour_params = {
+                'INPUT': temp_fixed_contours,
+                'OVERLAY': temp_current_pond,  # Use original pond boundary, not buffered
+                'OUTPUT': temp_clipped_contours
+            }
+            processing.run("native:clip", clip_contour_params, context=context, feedback=feedback)
+
+            # Process clipped contour polygons to calculate ssAREA, ssINCVOL, and ssCUMVOL
+            fixed_layer = QgsVectorLayer(temp_clipped_contours, f"Clipped Contours {pond_id}", "ogr")
             if not fixed_layer.isValid():
                 feedback.pushInfo(f"Fixed contour layer is invalid for Pond ID: {pond_id}. Skipping...")
                 continue
