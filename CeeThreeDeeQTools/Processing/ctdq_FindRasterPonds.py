@@ -45,16 +45,17 @@ from qgis.core import (
     QgsPalLayerSettings,
     QgsTextFormat,
     QgsTextBufferSettings,
-    QgsExpression
+    QgsExpression,
+    QgsCallout  # <-- Added import for QgsTextCallout
 )
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
-from ..ctdq_support import ctdprocessing_info
+from ..ctdq_support import CTDQSupport, ctdprocessing_info
 import heapq
 import numpy as np
 import processing
 import os
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor
 # endregion
 
@@ -125,7 +126,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 "MIN_DEPTH",
                 "Minimum Pond Depth",
                 type=QgsProcessingParameterNumber.Double,
-                defaultValue=0.5,
+                defaultValue=0.2,
                 optional=False
             )
         )
@@ -135,7 +136,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 "MIN_AREA",
                 "Minimum Pond Area (in square units of the CRS)",
                 type=QgsProcessingParameterNumber.Double,
-                defaultValue=500.0,
+                defaultValue=2000.0,
                 optional=False
             )
         )
@@ -192,42 +193,6 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             createByDefault=False  # Do not add to viewer by default
         ))
 
-        # Advanced precision parameters
-        elevation_precision_param = QgsProcessingParameterNumber(
-            "ELEVATION_PRECISION",
-            "Elevation Precision (decimal places)",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=3,
-            minValue=0,
-            maxValue=10,
-            optional=True
-        )
-        elevation_precision_param.setFlags(elevation_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(elevation_precision_param)
-
-        area_precision_param = QgsProcessingParameterNumber(
-            "AREA_PRECISION",
-            "Area Precision (decimal places)",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=0,
-            minValue=0,
-            maxValue=10,
-            optional=True
-        )
-        area_precision_param.setFlags(area_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(area_precision_param)
-
-        volume_precision_param = QgsProcessingParameterNumber(
-            "VOLUME_PRECISION",
-            "Volume Precision (decimal places)",
-            type=QgsProcessingParameterNumber.Integer,
-            defaultValue=0,
-            minValue=0,
-            maxValue=10,
-            optional=True
-        )
-        volume_precision_param.setFlags(volume_precision_param.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
-        self.addParameter(volume_precision_param)
 
     def processAlgorithm(
         self,
@@ -243,10 +208,10 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         output_pond_depth_raster_valid_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER_VALID", context)
         pond_outline_output_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_OUTLINES", context)
         
-        # Get precision parameters
-        elevation_precision = self.parameterAsInt(parameters, "ELEVATION_PRECISION", context)
-        area_precision = self.parameterAsInt(parameters, "AREA_PRECISION", context)
-        volume_precision = self.parameterAsInt(parameters, "VOLUME_PRECISION", context)
+        # Get precision values from global settings with fallback to 3 decimal places
+        precision_elevation = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_elevation", 3)
+        precision_area = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_area", 3)
+        precision_volume = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_volume", 3)
         
         # If optional outputs weren't provided, write to temp files to avoid empty-path errors
         import tempfile, uuid
@@ -683,7 +648,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             pond_layer_area.startEditing()
             if "PONDid" not in [field.name() for field in pond_layer_area.fields()]:
                 # Use modern QgsField constructor with proper parameter naming
-                pondid_field = QgsField(name="PONDid", type=QVariant.String)
+                pondid_field = QgsField(name="PONDid", type=QMetaType.QString)
                 pond_layer_area.dataProvider().addAttributes([pondid_field])
                 pond_layer_area.updateFields()
 
@@ -814,13 +779,13 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                     if name not in existing:
                         fields_to_add.append(QgsField(name, qtype, len=length, prec=prec))
 
-                add_if_missing('PONDRLmax', QVariant.Double, 30, elevation_precision)
-                add_if_missing('PONDRLmin', QVariant.Double, 30, elevation_precision)
-                add_if_missing('PONDarea', QVariant.Double, 30, area_precision)
-                add_if_missing('PONDvolume', QVariant.Double, 30, volume_precision)
-                add_if_missing('DPTHmax', QVariant.Double, 30, elevation_precision)
-                add_if_missing('DPTHmean', QVariant.Double, 30, elevation_precision)
-                add_if_missing('DPTHmedian', QVariant.Double, 30, elevation_precision)
+                add_if_missing('PONDRLmax', QMetaType.Double, 30, precision_elevation)
+                add_if_missing('PONDRLmin', QMetaType.Double, 30, precision_elevation)
+                add_if_missing('PONDarea', QMetaType.Double, 30, precision_area)
+                add_if_missing('PONDvolume', QMetaType.Double, 30, precision_volume)
+                add_if_missing('DPTHmax', QMetaType.Double, 30, precision_elevation)
+                add_if_missing('DPTHmean', QMetaType.Double, 30, precision_elevation)
+                add_if_missing('DPTHmedian', QMetaType.Double, 30, precision_elevation)
 
                 if fields_to_add:
                     provider.addAttributes(fields_to_add)
@@ -854,28 +819,28 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         attrs = {}
 
                         if 'PONDRLmax' in fld_idx:
-                            val = round(rlmax_val, elevation_precision) if rlmax_val is not None else None
+                            val = round(rlmax_val, precision_elevation) if rlmax_val is not None else None
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDRLmax'], val)
                             attrs[fld_idx['PONDRLmax']] = val
                             if not ok:
                                 per_feature_failures.append((fid, 'PONDRLmax', val))
 
                         if 'DPTHmax' in fld_idx and dmax_val is not None:
-                            val = round(dmax_val, elevation_precision)
+                            val = round(dmax_val, precision_elevation)
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmax'], val)
                             attrs[fld_idx['DPTHmax']] = val
                             if not ok:
                                 per_feature_failures.append((fid, 'DPTHmax', val))
 
                         if 'DPTHmean' in fld_idx and dmean_val is not None:
-                            val = round(dmean_val, elevation_precision)
+                            val = round(dmean_val, precision_elevation)
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmean'], val)
                             attrs[fld_idx['DPTHmean']] = val
                             if not ok:
                                 per_feature_failures.append((fid, 'DPTHmean', val))
 
                         if 'DPTHmedian' in fld_idx and dmed_val is not None:
-                            val = round(dmed_val, elevation_precision)
+                            val = round(dmed_val, precision_elevation)
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['DPTHmedian'], val)
                             attrs[fld_idx['DPTHmedian']] = val
                             if not ok:
@@ -884,7 +849,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         # PONDRLmin = PONDRLmax - DPTHmax
                         if 'PONDRLmin' in fld_idx:
                             if rlmax_val is not None and dmax_val is not None:
-                                val = round(rlmax_val - dmax_val, elevation_precision)
+                                val = round(rlmax_val - dmax_val, precision_elevation)
                             else:
                                 val = None
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDRLmin'], val)
@@ -895,7 +860,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         # PONDvolume = DEPTH_sum * pixel_area
                         if 'PONDvolume' in fld_idx:
                             if dsum_val is not None and pixel_area is not None:
-                                val = round(dsum_val * pixel_area, volume_precision)
+                                val = round(dsum_val * pixel_area, precision_volume)
                             else:
                                 val = None
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDvolume'], val)
@@ -908,7 +873,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                             try:
                                 geom = feature.geometry()
                                 area_val = geom.area() if geom is not None else None
-                                val = round(area_val, area_precision) if area_val is not None else None
+                                val = round(area_val, precision_area) if area_val is not None else None
                             except Exception:
                                 val = None
                             ok = pond_layer_upd.changeAttributeValue(fid, fld_idx['PONDarea'], val)
@@ -1016,14 +981,16 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 label_settings.setFormat(text_format)
                 
                 # Set label expression: PONDid on first line, volume on second line
-                label_expression = '"PONDid" || \'\\n\' || \'Vol =\' || "PONDvolume"'
+                label_expression = '"PONDid" || \'\\n\' || \'(RL=\' || "PONDRLmax" || \')\' || \'\\n\' || \'Vol =\' || "PONDvolume" || \' m³\' || \'\\n\' || \'Area=\' || "PONDarea" || \' m²\''
                 label_settings.fieldName = label_expression
                 label_settings.isExpression = True
                 
                 # Position labels in center of polygons (use polygon-specific placement)
                 try:
-                    # For polygon features, use Horizontal placement
-                    label_settings.placement = QgsPalLayerSettings.Horizontal
+                    # For polygon features, use Horizontal placement and allow degraded placement so labels dont disappear
+                    label_settings.placement = QgsPalLayerSettings.Horizontal  # Horizontal placement for polygons
+                    label_settings.placementSettings().allowDegradedPlacement = True
+
                     feedback.pushInfo("Using Horizontal label placement for polygons")
                 except Exception as placement_error:
                     feedback.pushInfo(f"Horizontal placement failed: {placement_error}, trying alternative")
@@ -1032,7 +999,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         label_settings.placement = 0  # Use numeric value for default
                     except:
                         feedback.pushInfo("Using default label placement")
-                
+
                 # Enable labeling
                 label_settings.enabled = True
                 
@@ -1077,7 +1044,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         save_options = QgsVectorFileWriter.SaveVectorOptions()
                         save_options.driverName = "ESRI Shapefile"
                         save_options.fileEncoding = "utf-8"
-                        error = QgsVectorFileWriter.writeAsVectorFormatV2(working_layer, final_pond_outline_path, working_layer.transformContext(), save_options)
+                        error = QgsVectorFileWriter.writeAsVectorFormatV3(working_layer, final_pond_outline_path, working_layer.transformContext(), save_options)
                         if error[0] == QgsVectorFileWriter.NoError:
                             feedback.pushInfo(f"Final pond outlines written to: {final_pond_outline_path}")
                             # set the path used to add to project to the final path

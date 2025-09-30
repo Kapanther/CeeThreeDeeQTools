@@ -22,34 +22,22 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsProject,
     QgsVectorLayer,
-    QgsFields,
     QgsField,
     QgsFeature,
-    QgsGeometry,
     QgsWkbTypes,
     QgsProcessingParameterFileDestination,
     QgsProcessingParameterVectorDestination,
-    QgsProcessingParameterVectorLayer,
     QgsProcessingParameterRasterLayer,
     QgsProcessingException,
     QgsVectorFileWriter,
     QgsProcessingParameterField,
     QgsProcessingParameterNumber,
-    QgsProcessingOutputLayerDefinition,
-    QgsCoordinateTransform,
-    QgsCoordinateTransformContext,
-    QgsProcessingUtils,
-    QgsRasterLayer,  # Import QgsRasterLayer for raster support
-    QgsProcessingParameterString,  # Import QgsProcessingParameterString for text input
-    QgsProcessingFeatureSourceDefinition,  # Import QgsProcessingFeatureSourceDefinition for spatial join
-    QgsFeatureRequest,  # Import QgsFeatureRequest for feature filtering
-    QgsProcessingParameterDefinition,  # Import QgsProcessingParameterDefinition for advanced parameter flags
     QgsProcessingParameterFeatureSource,  # Import QgsProcessingParameterFeatureSource for vector layer input
     QgsGraduatedSymbolRenderer,  # Import QgsGraduatedSymbolRenderer for graduated styling
     QgsStyle,  # Import QgsStyle for color ramp
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from PyQt5.QtCore import QVariant, QCoreApplication
+from PyQt5.QtCore import QCoreApplication, QMetaType
 from ..ctdq_support import ctdprocessing_info, ctdprocessing_settingsdefaults, CTDQSupport
 import processing  # Import processing for running algorithms
 
@@ -195,13 +183,14 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         # Prepare the output layer
         feedback.pushInfo("Preparing output layer...")
         output_fields = ponds_layer.fields()
-        output_fields.append(QgsField("ssMIN", QVariant.Double))
-        output_fields.append(QgsField("ssMAX", QVariant.Double))  # ssMAX will be overridden with RLmax
-        output_fields.append(QgsField("ssAREA", QVariant.Double))
-        output_fields.append(QgsField("ssINCVOL", QVariant.Double))
-        output_fields.append(QgsField("ssCUMVOL", QVariant.Double))
-        output_fields.append(QgsField("ssMINDPTH", QVariant.Double))  # New field for minimum depth
-        output_fields.append(QgsField("ssMAXDPTH", QVariant.Double))  # New field for maximum depth
+        # Create fields using QMetaType to avoid deprecated QVariant-based ctor
+        output_fields.append(QgsField("ssMIN", QMetaType.Double))
+        output_fields.append(QgsField("ssMAX", QMetaType.Double))  # ssMAX will be overridden with RLmax
+        output_fields.append(QgsField("ssAREA", QMetaType.Double))
+        output_fields.append(QgsField("ssINCVOL", QMetaType.Double))
+        output_fields.append(QgsField("ssCUMVOL", QMetaType.Double))
+        output_fields.append(QgsField("ssMINDPTH", QMetaType.Double))  # New field for minimum depth
+        output_fields.append(QgsField("ssMAXDPTH", QMetaType.Double))  # New field for maximum depth
         writer = QgsVectorFileWriter(
             output_layer,
             "utf-8",
@@ -279,6 +268,7 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
                 'INTERVAL': storage_interval,
                 'FIELD_NAME_MIN': 'ssMIN',
                 'FIELD_NAME_MAX': 'ssMAX',
+                'OFFSET': 0,
                 'CREATE_3D': True,
                 'IGNORE_NODATA': False,
                 'OUTPUT': temp_contour_polygons
@@ -316,7 +306,14 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             if not fixed_layer.isValid():
                 feedback.pushInfo(f"Fixed contour layer is invalid for Pond ID: {pond_id}. Skipping...")
                 continue
+            
+            #lets loop through the features and delete any that have a ssMIN that is greater than the pond RLmax
+            features_to_delete = [f.id() for f in fixed_layer.getFeatures() if f["ssMIN"] > rl_max]
+            if features_to_delete:
+                fixed_layer.dataProvider().deleteFeatures(features_to_delete)
+                feedback.pushInfo(f"Deleted {len(features_to_delete)} contour features with ssMIN greater than RLmax for Pond ID: {pond_id}.")
 
+            # begin stage storage calculation
             feedback.pushInfo(f"Calculating stage storage for Pond ID: {pond_id}...")
             cumulative_area = 0.0
             cumulative_volume = 0.0
@@ -329,8 +326,8 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             for i, contour_feature in enumerate(sorted_features):
                 ss_min = contour_feature["ssMIN"]
                 ss_max = contour_feature["ssMAX"]
-
-                # Override ssMAX with RLmax only for the last range
+                 
+                 # Override ssMAX with RLmax only for the last range
                 if i == len(sorted_features) - 1:
                     ss_max = rl_max
 
@@ -429,15 +426,15 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             feedback.pushInfo("Applying graduated styling to the output layer...")
             renderer = QgsGraduatedSymbolRenderer()
             renderer.setClassAttribute("ssMAXDPTH")
-            renderer.setMode(QgsGraduatedSymbolRenderer.Quantile)
 
-            # Use the Spectral color ramp
+            # Classify the layer into 5 classes using Quantile (updateClasses sets the mode)
+            renderer.updateClasses(output_layer_obj, QgsGraduatedSymbolRenderer.Quantile, 5)
+
+            # Apply the Spectral color ramp after classes are created
             color_ramp = QgsStyle().defaultStyle().colorRamp("Spectral")
             if color_ramp:
                 renderer.updateColorRamp(color_ramp)
 
-            # Classify the layer into 5 classes
-            renderer.updateClasses(output_layer_obj, QgsGraduatedSymbolRenderer.Quantile, 5)
             output_layer_obj.setRenderer(renderer)
 
             # Add the styled layer to the project
