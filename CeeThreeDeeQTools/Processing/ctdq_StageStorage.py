@@ -22,6 +22,7 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsProject,
     QgsVectorLayer,
+    QgsProcessingFeatureSourceDefinition,
     QgsField,
     QgsFeature,
     QgsWkbTypes,
@@ -35,10 +36,11 @@ from qgis.core import (
     QgsProcessingParameterFeatureSource,  # Import QgsProcessingParameterFeatureSource for vector layer input
     QgsGraduatedSymbolRenderer,  # Import QgsGraduatedSymbolRenderer for graduated styling
     QgsStyle,  # Import QgsStyle for color ramp
+    QgsFeatureRequest,  # Import QgsFeatureRequest for materialize
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QCoreApplication, QMetaType
-from ..ctdq_support import ctdprocessing_info, ctdprocessing_settingsdefaults, CTDQSupport
+from ..ctdq_support import ctdprocessing_command_info, ctdprocessing_settingsdefaults, CTDQSupport
 import processing  # Import processing for running algorithms
 
 
@@ -61,16 +63,16 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdprocessing_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group_id"]
 
     def shortHelpString(self) -> str:
-        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["shortHelp"]
 
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
         """
@@ -159,7 +161,23 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         """
         # Retrieve parameters
         ground_raster = self.parameterAsRasterLayer(parameters, self.INPUT_RASTER, context)
+        
+        # Handle QgsProcessingFeatureSourceDefinition (may include selectedFeaturesOnly)
+        raw_ponds_param = parameters.get(self.INPUT_PONDS_VECTOR)
+        selected_only = False
+        if isinstance(raw_ponds_param, QgsProcessingFeatureSourceDefinition):
+            selected_only = bool(raw_ponds_param.selectedFeaturesOnly)
+            feedback.pushInfo(f"Selected features only: {selected_only}")
+        
+        # Get the ponds source and layer
+        ponds_source = self.parameterAsSource(parameters, self.INPUT_PONDS_VECTOR, context)
         ponds_layer = self.parameterAsVectorLayer(parameters, self.INPUT_PONDS_VECTOR, context)
+        
+        # If parameterAsVectorLayer returns None, try to get it from the source
+        if ponds_layer is None and ponds_source is not None:
+            # Create a memory layer from the source
+            ponds_layer = ponds_source.materialize(QgsFeatureRequest())
+        
         rl_field = self.parameterAsString(parameters, self.INPUT_PONDS_RL_FIELD, context)
         storage_interval = self.parameterAsDouble(parameters, self.STORAGE_INTERVAL, context)
         output_layer = self.parameterAsOutputLayer(parameters, self.OUTPUT_STAGE_STORAGE, context)
@@ -205,7 +223,17 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
 
         # Process each pond feature
         feedback.pushInfo("Processing each pond polygon...")
-        for pond_feature in ponds_layer.getFeatures():
+        
+        # Get features based on selectedFeaturesOnly flag
+        if selected_only and ponds_source is not None:
+            pond_features_iter = ponds_source.getFeatures()
+            feedback.pushInfo("Using selected features only from input ponds layer.")
+        elif ponds_layer is not None:
+            pond_features_iter = ponds_layer.getFeatures()
+        else:
+            raise QgsProcessingException("Could not access ponds layer features.")
+        
+        for pond_feature in pond_features_iter:
             pond_id = pond_feature[pond_id_field]
             rl_max = pond_feature[rl_field]  # Retrieve RLmax from the pond feature
             feedback.pushInfo(f"Processing Pond ID: {pond_id} with RLmax: {rl_max}")

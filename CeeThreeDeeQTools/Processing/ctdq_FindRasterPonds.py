@@ -50,7 +50,7 @@ from qgis.core import (
 )
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
-from ..ctdq_support import CTDQSupport, ctdprocessing_info
+from ..ctdq_support import CTDQSupport, ctdprocessing_command_info
 import heapq
 import numpy as np
 import processing
@@ -94,16 +94,16 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdprocessing_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group_id"]
 
     def shortHelpString(self) -> str:
-        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["shortHelp"]
 
     # endregion
 
@@ -142,22 +142,11 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         )
 
         self.addParameter(
-            QgsProcessingParameterFileDestination(
+            QgsProcessingParameterVectorDestination(
                 "OUTPUT_POND_OUTLINES",
                 "Output Pond Outlines Vector",                
-                optional=False,
-                fileFilter="ESRI Shapefile (*.shp)",
-                createByDefault=True                
-            )
-        )
-
-        # Move OPEN_OUTLINES_AFTER_RUN to the end of the parameter list
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                "OPEN_OUTLINES_AFTER_RUN",
-                "Open output file after running algorithm",
-                defaultValue=True,
-                optional=True               
+                optional=False,                
+                defaultValue=None              
             )
         )
 
@@ -225,27 +214,15 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             output_pond_depth_raster_valid_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_DEPTH_RASTER_VALID_{uuid.uuid4().hex}.tif")
             feedback.pushInfo(f"No OUTPUT_POND_DEPTH_RASTER_VALID provided; using temporary path: {output_pond_depth_raster_valid_path}")
         if not pond_outline_output_path:
-            pond_outline_output_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_OUTLINES_{uuid.uuid4().hex}.shp")
+            pond_outline_output_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_OUTLINES_{uuid.uuid4().hex}.gpkg")
             feedback.pushInfo(f"No OUTPUT_POND_OUTLINES provided; using temporary path: {pond_outline_output_path}")
 
-        # Ensure pond outlines vector output path ends with .shp
-        if pond_outline_output_path.lower().endswith('.gpkg'):
-            pond_outline_output_path = pond_outline_output_path[:-5] + '.shp'
-        if not pond_outline_output_path.lower().endswith('.shp'):
-            pond_outline_output_path += '.shp'
         # Determine final vs working pond outlines output
         # The Processing framework may return the literal string 'TEMPORARY_OUTPUT' when the
         # user selected a temporary output. Detect that and treat final_output_path as None.
         final_pond_outline_path = pond_outline_output_path
         if isinstance(final_pond_outline_path, str) and final_pond_outline_path.upper() == 'TEMPORARY_OUTPUT':
             final_pond_outline_path = None
-
-        # If a final path was provided and it's a .gpkg, convert to shapefile path
-        if final_pond_outline_path:
-            if final_pond_outline_path.lower().endswith('.gpkg'):
-                final_pond_outline_path = final_pond_outline_path[:-5] + '.shp'
-            if not final_pond_outline_path.lower().endswith('.shp'):
-                final_pond_outline_path += '.shp'
 
         # Log paths for debugging
         feedback.pushInfo(f"Input raster: {input_raster.name()}")
@@ -595,7 +572,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         # endregion
 
         # region Process: Polygonize & Filter pond outlines
-        temp_poly_output_path = os.path.join(tempfile.gettempdir(), f"pond_outlines_polygonize_{uuid.uuid4().hex}.shp")
+        temp_poly_output_path = os.path.join(tempfile.gettempdir(), f"pond_outlines_polygonize_{uuid.uuid4().hex}.gpkg")
         # Polygonize the valid pond depth raster to vector shapes
         polygonize_params = {
             'INPUT': output_pond_depth_raster_valid_path,
@@ -671,7 +648,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         if do_gen:
             try:
                 import tempfile
-                gen_out = os.path.join(tempfile.gettempdir(), f"pond_outlines_gen_{uuid.uuid4().hex}.shp")
+                gen_out = os.path.join(tempfile.gettempdir(), f"pond_outlines_gen_{uuid.uuid4().hex}.gpkg")
                 gen_params = {
                     'INPUT': temp_poly_output_path,
                     'ITERATIONS': 1,
@@ -1026,14 +1003,6 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                 dest_dir = os.path.dirname(final_pond_outline_path)
                 if dest_dir and not os.path.exists(dest_dir):
                     os.makedirs(dest_dir)
-                # If destination exists, remove the files making up the shapefile to allow overwrite
-                for ext in ('.shp', '.shx', '.dbf', '.prj', '.cpg'):
-                    p = final_pond_outline_path[:-4] + ext if final_pond_outline_path.lower().endswith('.shp') else final_pond_outline_path + ext
-                    if os.path.exists(p):
-                        try:
-                            os.remove(p)
-                        except Exception:
-                            feedback.pushInfo(f"Could not remove existing file: {p}; will attempt to overwrite via writer.")
 
                 # Use QgsVectorFileWriter to write working layer to final path
                 try:
@@ -1042,7 +1011,7 @@ class FindRasterPonds(QgsProcessingAlgorithm):
                         feedback.pushWarning(f"Working pond outlines layer invalid; cannot write final output: {pond_outline_output_path}")
                     else:
                         save_options = QgsVectorFileWriter.SaveVectorOptions()
-                        save_options.driverName = "ESRI Shapefile"
+                        #save_options.driverName = "ESRI Shapefile"
                         save_options.fileEncoding = "utf-8"
                         error = QgsVectorFileWriter.writeAsVectorFormatV3(working_layer, final_pond_outline_path, working_layer.transformContext(), save_options)
                         if error[0] == QgsVectorFileWriter.NoError:
@@ -1056,21 +1025,18 @@ class FindRasterPonds(QgsProcessingAlgorithm):
         except Exception:
             # Non-fatal
             pass
-
-        open_outlines = self.parameterAsBoolean(parameters, "OPEN_OUTLINES_AFTER_RUN", context)
-        if open_outlines:            
-            layer = QgsVectorLayer(pond_outline_output_path, "Pond Outlines", "ogr")
-            if layer.isValid():
-                QgsProject.instance().addMapLayer(layer)
-                # Apply blue styling and labels
-                if apply_pond_styling(layer):
-                    feedback.pushInfo("Pond outlines layer added to project with styling and labels.")
-                else:
-                    feedback.pushInfo("Pond outlines layer added to project.")
+        
+        # Check if final layer got added to the map and style it if it did
+        outputted_layer = QgsVectorLayer(pond_outline_output_path, "PondOutlinesFinal", "ogr")
+        if outputted_layer.isValid():
+            # Apply styling
+            if apply_pond_styling(outputted_layer):
+                feedback.pushInfo("Pond outlines layer added to project with styling and labels.")
             else:
-                feedback.reportError(f"Could not add pond outlines layer to project: {pond_outline_output_path}")
-
-        # endregion
+                feedback.pushInfo("Pond outlines layer added to project.")
+            QgsProject.instance().addMapLayer(outputted_layer)
+        else:
+            feedback.reportError(f"Could not add pond outlines layer to project: {pond_outline_output_path}")
 
         return {
             "OUTPUT_FILLED_RASTER": output_raster_path,

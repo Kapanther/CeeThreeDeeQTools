@@ -12,7 +12,7 @@ from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterVectorDestination
 import processing
 from PyQt5.QtCore import QCoreApplication
-from ..ctdq_support import ctdprocessing_info
+from ..ctdq_support import ctdprocessing_command_info
 
 
 class GenerateCatchmentsMinArea(QgsProcessingAlgorithm):
@@ -22,16 +22,16 @@ class GenerateCatchmentsMinArea(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdprocessing_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group_id"]
     
     def shortHelpString(self) -> str:
-        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["shortHelp"]
     
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer('eg', 'Input Raster', defaultValue=None))

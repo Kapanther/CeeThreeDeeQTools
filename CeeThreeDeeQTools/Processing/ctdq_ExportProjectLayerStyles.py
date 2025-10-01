@@ -31,7 +31,7 @@ from qgis.core import (
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QScrollArea, QWidget
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
-from ..ctdq_support import ctdprocessing_info
+from ..ctdq_support import ctdprocessing_command_info
 import os
 
 
@@ -84,16 +84,16 @@ class ExportProjectLayerStyles(QgsProcessingAlgorithm):
         return self.TOOL_NAME
 
     def displayName(self):
-        return ctdprocessing_info[self.TOOL_NAME]["disp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["disp"]
 
     def group(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group"]
 
     def groupId(self):
-        return ctdprocessing_info[self.TOOL_NAME]["group_id"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["group_id"]
 
     def shortHelpString(self) -> str:
-        return ctdprocessing_info[self.TOOL_NAME]["shortHelp"]
+        return ctdprocessing_command_info[self.TOOL_NAME]["shortHelp"]
 
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
         """

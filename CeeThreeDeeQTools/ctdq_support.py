@@ -37,7 +37,11 @@ ctdprocessing_settingsdefaults = {
     }
 }
 
-ctdprocessing_info = {    
+ctdprocessing_settingshelp_text = (
+    "To change settings for precision of results go to the processing toolbox -> Settings(Cog Icon) -> Providers -> CeeThreeDeeQtools"
+)
+
+ctdprocessing_command_info = {    
     "ExportProjectLayerStyles": {
         "disp": "Export Project Layer Styles",
         "group": ctdgroup_info[1]["group"],
@@ -49,6 +53,9 @@ ctdprocessing_info = {
             f"<li>{fop}Output XML file:{fcc} Location to save XML file detailing styles details.</li>"
             f"<li>{fop}Output Directory for QMLS:{fcc} The directory where the layer QML files will be saved. If ByTheme is selected directories for each theme will be created in this location</li>"
             "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     },
     "ExportDataSourcesMap": {
@@ -62,6 +69,9 @@ ctdprocessing_info = {
             f"<li>{fop}Output HTML file:{fcc} Location to save the HTML file which shows the Data Sources Map.</li>"
             f"<li>{fop}Output Table:{fcc} A table containing the details of each layer which can be exported into CAD programs as text.</li>"
             "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     },
     "GenerateCatchmentsMinArea": {
@@ -76,6 +86,9 @@ ctdprocessing_info = {
             f"<li>{fop}Input Boundary Polygon:{fcc} A boundary to clip the DEM to before processing, leave blank to use the full extent.</li>"
             f"<li>{fop}Output Folder:{fcc} The output location for the individual raster and vector files created by the process.</li>"
             "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     },
     "FindRasterPonds": {
@@ -83,12 +96,23 @@ ctdprocessing_info = {
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Find potential ponds from a DEM by identifying depressions and flat areas."
+            "Find potential ponds from a DEM by identifying depressions in a raster layer, will also compute volume/area and other key statistics for each pond."
             "<h3>Parameters</h3>"
             "<ul>"
-            f"<li>{fop}Input DEM:{fcc} Digital Elevation Model to analyze.</li>"
-            f"<li>{fop}Output Ponds:{fcc} Vector layer containing potential pond locations.</li>"
+            f"<li>{fop}Input DEM:{fcc} Digital Elevation Model to analyze for depressions(ponds) For larger jobs clip the raster to your area of interest first.</li>"
+            f"<li>{fop}Output Ponds:{fcc} Output Vector layer containing potential pond locations, with pond volume/area and other statistics attached.</li>"            
+            f"<li>{fop}Minimum Pond Area (m²):{fcc} Minimum area of ponds to detect, smaller ponds will be removed the result (default 2000m²).</li>"
+            f"<li>{fop}Minimum Pond Depth (m):{fcc} Minimum depth of ponds to detect, shallower depressions will be ignored (default 0.1m). This is used to ignore small depressions that might have a large area</li>"
             "</ul>"
+            "<h3>Optional Outputs (Off by default)</h3>"
+            "<ul>"
+            f"<li>{fop}Output Filled DEM:{fcc} Output Raster layer showing the DEM with depressions filled, possibly useful for other analyses.</li>"
+            f"<li>{fop}Output Pond Depth Raster:{fcc} Output Raster layer showing the depth of each pond above the DEM surface.</li>"
+            f"<li>{fop}Output Valid Pond Depth Raster:{fcc} Output Raster layer showing the depth of each pond above the DEM surface, with small/noisy depressions removed.</li>"
+            "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     },
     "CalculateStageStoragePond": {
@@ -103,6 +127,9 @@ ctdprocessing_info = {
             f"<li>{fop}Input Ponds Vector:{fcc} Polygon layer representing pond boundaries.</li>"
             f"<li>{fop}Storage Interval:{fcc} Elevation interval for volume calculations.</li>"
             "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     }
 }
