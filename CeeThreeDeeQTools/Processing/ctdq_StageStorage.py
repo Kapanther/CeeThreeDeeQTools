@@ -24,6 +24,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsProcessingFeatureSourceDefinition,
     QgsField,
+    QgsFields,  # Import QgsFields to fix the error
     QgsFeature,
     QgsWkbTypes,
     QgsProcessingParameterFileDestination,
@@ -200,8 +201,17 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
 
         # Prepare the output layer
         feedback.pushInfo("Preparing output layer...")
-        output_fields = ponds_layer.fields()
-        # Create fields using QMetaType to avoid deprecated QVariant-based ctor
+        # Copy source fields excluding any named 'fid' (GeoPackage PK) to prevent UNIQUE constraint failures
+        src_fields = ponds_layer.fields()
+        output_fields = QgsFields()
+        src_field_names_lower = []
+        for f in src_fields:
+            if f.name().lower() == "fid":
+                feedback.pushInfo("Skipping source field 'fid' to avoid GeoPackage PK conflict.")
+                continue
+            output_fields.append(f)
+            src_field_names_lower.append(f.name().lower())
+        # Create fields using QMetaType
         output_fields.append(QgsField("ssMIN", QMetaType.Double))
         output_fields.append(QgsField("ssMAX", QMetaType.Double))  # ssMAX will be overridden with RLmax
         output_fields.append(QgsField("ssAREA", QMetaType.Double))
@@ -209,14 +219,22 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         output_fields.append(QgsField("ssCUMVOL", QMetaType.Double))
         output_fields.append(QgsField("ssMINDPTH", QMetaType.Double))  # New field for minimum depth
         output_fields.append(QgsField("ssMAXDPTH", QMetaType.Double))  # New field for maximum depth
-        writer = QgsVectorFileWriter(
+        save_opts = QgsVectorFileWriter.SaveVectorOptions()
+        save_opts.driverName = "GPKG"
+        save_opts.fileEncoding = "utf-8"
+        writer_created = QgsVectorFileWriter.create(
             output_layer,
-            "utf-8",
             output_fields,
             QgsWkbTypes.Polygon,
             ponds_layer.crs(),
-            "GPKG"            
+            context.transformContext(),
+            save_opts
         )
+        writer = writer_created[0] if isinstance(writer_created, tuple) else writer_created
+        if writer is None:
+            raise QgsProcessingException("Failed to create output writer (GeoPackage).")
+        # Pre-build list of retained source field names (order matches output_fields head)
+        retained_src_fields = [f.name() for f in src_fields if f.name().lower() != "fid"]
 
         # Prepare data for the HTML report
         pond_reports = []
@@ -297,7 +315,8 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
                 'FIELD_NAME_MIN': 'ssMIN',
                 'FIELD_NAME_MAX': 'ssMAX',
                 'OFFSET': 0,
-                'CREATE_3D': True,
+                # Use 2D to avoid geometry type mismatch with Polygon writer
+                'CREATE_3D': False,
                 'IGNORE_NODATA': False,
                 'OUTPUT': temp_contour_polygons
             }
@@ -387,12 +406,18 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
 
                 # Create a new feature for the output layer
                 new_feature = QgsFeature(output_fields)
-                new_feature.setGeometry(contour_feature.geometry())
+                geom = contour_feature.geometry()
+                if QgsWkbTypes.hasZ(geom.wkbType()):
+                    geom = geom.make2D()
+                new_feature.setGeometry(geom)
+                # Build base attributes excluding any 'fid'
+                base_attrs = [pond_feature[field_name] for field_name in retained_src_fields]
                 new_feature.setAttributes(
-                    pond_feature.attributes() +
-                    [ss_min, ss_max, cumulative_area, incremental_volume, cumulative_volume, ss_min_depth, ss_max_depth]
+                    base_attrs + [ss_min, ss_max, cumulative_area, incremental_volume, cumulative_volume, ss_min_depth, ss_max_depth]
                 )
-                writer.addFeature(new_feature)
+                new_feature.setId(-1)  # ensure provider assigns a fresh PK
+                if not writer.addFeature(new_feature):
+                    feedback.reportError(f"Failed to add feature (Pond {pond_id} ssMIN={ss_min} ssMAX={ss_max})")
 
                 # Add data for the HTML report
                 pond_data.append({
@@ -443,27 +468,26 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         del writer
         feedback.pushInfo(f"Output stage storage layer saved to: {output_layer}")
 
-        # Ensure the CRS of the output layer matches the ponds layer
-        output_layer_obj = QgsVectorLayer(output_layer, "Output Stage Storage", "ogr")
-        if (output_layer_obj.isValid()):
+        # Load the output layer path into a QgsVectorLayer for CRS/styling/add-to-project
+        output_layer_obj = QgsVectorLayer(output_layer, "Output Stage Storage Slices", "ogr")
+        if output_layer_obj.isValid():
             if output_layer_obj.crs() != ponds_layer.crs():
                 feedback.pushInfo("Setting CRS of the output layer to match the ponds layer...")
                 output_layer_obj.setCrs(ponds_layer.crs())
 
-            # Apply graduated styling to the output layer
+            # Apply graduated styling to the output layer (use non-deprecated factory)
             feedback.pushInfo("Applying graduated styling to the output layer...")
-            renderer = QgsGraduatedSymbolRenderer()
-            renderer.setClassAttribute("ssMAXDPTH")
-
-            # Classify the layer into 5 classes using Quantile (updateClasses sets the mode)
-            renderer.updateClasses(output_layer_obj, QgsGraduatedSymbolRenderer.Quantile, 5)
-
-            # Apply the Spectral color ramp after classes are created
+            renderer = QgsGraduatedSymbolRenderer.createRenderer(
+                output_layer_obj,
+                "ssMAXDPTH",
+                QgsGraduatedSymbolRenderer.Quantile,
+                5
+            )
             color_ramp = QgsStyle().defaultStyle().colorRamp("Spectral")
-            if color_ramp:
+            if color_ramp and renderer:
                 renderer.updateColorRamp(color_ramp)
-
-            output_layer_obj.setRenderer(renderer)
+            if renderer:
+                output_layer_obj.setRenderer(renderer)
 
             # Add the styled layer to the project
             QgsProject.instance().addMapLayer(output_layer_obj)
