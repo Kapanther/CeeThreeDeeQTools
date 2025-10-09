@@ -58,7 +58,7 @@ class CTDQPlugin(object):
         """
         # Save reference to the QGIS interface
         self.iface = iface
-        self.provider = CTDQProvider()
+        self.provider = CTDQProvider(self.iface)
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
         # initialize locale (robust to QVariant / different return types)
@@ -79,7 +79,7 @@ class CTDQPlugin(object):
 
     def initProcessing(self):
         """Init Processing provider for QGIS >= 3.8."""
-        self.provider = CTDQProvider()
+        self.provider = CTDQProvider(self.iface)
         QgsApplication.processingRegistry().addProvider(self.provider)
 
     def tr(self, message):

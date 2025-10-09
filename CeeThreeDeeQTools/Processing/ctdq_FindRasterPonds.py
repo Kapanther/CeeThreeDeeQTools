@@ -51,6 +51,7 @@ from qgis.core import (
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
 from ..ctdq_support import CTDQSupport, ctdprocessing_command_info
+from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
 import heapq
 import numpy as np
 import processing
@@ -59,7 +60,7 @@ from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor
 # endregion
 
-class FindRasterPonds(QgsProcessingAlgorithm):
+class FindRasterPonds(ctdqAlgoRun):
     # region Class: FindRasterPonds and helpers
     # class-level imports removed; use module-level imports
 
@@ -85,10 +86,24 @@ class FindRasterPonds(QgsProcessingAlgorithm):
     MIN_DEPTH = "MIN_DEPTH"
     MIN_AREA = "MIN_AREA"
     INPUT_RASTER = "INPUT_RASTER"
-    OUTPUT_VECTOR = "OUTPUT_VECTOR"
+    OUTPUT_POND_OUTLINES = "OUTPUT_POND_OUTLINES"
     OUTPUT_FILLED_RASTER = "OUTPUT_FILLED_RASTER"
     OUTPUT_POND_DEPTH_RASTER = "OUTPUT_POND_DEPTH_RASTER"
-    OUTPUT_POND_DEPTH_RASTER_VALID = "OUTPUT_POND_DEPTH_RASTER_VALID"    
+    OUTPUT_POND_DEPTH_RASTER_VALID = "OUTPUT_POND_DEPTH_RASTER_VALID"   
+    FILL_SYMBOL = QgsFillSymbol.createSimple({
+                    'color': '173,216,230,128',  # Light blue with 50% transparency (alpha=128)
+                    'outline_color': '0,0,255,255',  # Blue outline
+                    'outline_width': '0.5',
+                    'outline_style': 'solid'
+                }) 
+    LABEL_EXPRESSION = '"PONDid" || \'\\n\' || \'(RL=\' || "PONDRLmax" || \')\' || \'\\n\' || \'Vol =\' || "PONDvolume" || \' m³\' || \'\\n\' || \'Area=\' || "PONDarea" || \' m²\''
+    LABEL_TEXT_FORMAT = QgsTextFormat()                
+    LABEL_TEXT_FORMAT.setSize(8)
+    LABEL_TEXT_FORMAT.setColor(QColor(0, 0, 0))  # Black text
+    LABEL_BUFFER_FORMAT = QgsTextBufferSettings()
+    LABEL_BUFFER_FORMAT.setEnabled(True)
+    LABEL_BUFFER_FORMAT.setSize(1.5)
+    LABEL_BUFFER_FORMAT.setColor(QColor(255, 255, 255))  # White buffer
 
     def name(self):
         return self.TOOL_NAME
@@ -903,140 +918,39 @@ class FindRasterPonds(QgsProcessingAlgorithm):
             feedback.pushWarning(f"Exception during PONDRLmin/PONDvolume computation: {e}")
 
         # endregion
-
-        # Defer writing to final output. At this point we have a working shapefile
-        # indicated by temp_poly_output_path. Ensure pond_outline_output_path points
-        # to the working shapefile so downstream finalization/styling uses the
-        # correct source. We avoid writing here to prevent duplicate writes and
-        # potential OGR-in-place overwrite issues.
+        
+        # Finally, write the pond outlines to the correct output path
+        # Use QgsVectorFileWriter to write working layer to final output
         try:
             if not pond_layer_upd.isValid():
-                feedback.pushWarning(f"Working pond outlines layer invalid; cannot proceed to finalization: {temp_poly_output_path}")
+                feedback.pushWarning(f"Working pond outlines layer invalid; cannot write final output: {pond_outline_output_path}")
             else:
-                # If the layer has a valid data source, prefer that; otherwise use the temp path
-                try:
-                    src = pond_layer_upd.dataProvider().dataSourceUri()
-                    pond_outline_output_path = src if src else temp_poly_output_path
-                except Exception:
-                    pond_outline_output_path = temp_poly_output_path
-                feedback.pushInfo(f"Using working pond outlines path: {pond_outline_output_path}")
+                pond_outline_output_path = pond_layer_upd
         except Exception as e:
-            feedback.pushWarning(f"Could not determine working pond outlines path: {e}")
+            feedback.pushWarning(f"Could not write final pond outlines: {e}")
 
-        # region Process: Styling & Add to Project
-        def apply_pond_styling(layer):
-            """Apply blue styling and labels to pond layer"""
-            try:
-                # Create fill symbol with light blue fill and blue outline
-                fill_symbol = QgsFillSymbol.createSimple({
-                    'color': '173,216,230,128',  # Light blue with 50% transparency (alpha=128)
-                    'outline_color': '0,0,255,255',  # Blue outline
-                    'outline_width': '0.5',
-                    'outline_style': 'solid'
-                })
-                
-                # Apply the symbol to the layer
-                layer.renderer().setSymbol(fill_symbol)
-                
-                # Set up labeling
-                label_settings = QgsPalLayerSettings()
-                
-                # Create text format
-                text_format = QgsTextFormat()
-                text_format.setFont(text_format.font())
-                text_format.setSize(10)
-                text_format.setColor(QColor(0, 0, 0))  # Black text
-                
-                # Set up text buffer (white halo)
-                buffer_settings = QgsTextBufferSettings()
-                buffer_settings.setEnabled(True)
-                buffer_settings.setSize(1.5)
-                buffer_settings.setColor(QColor(255, 255, 255))  # White buffer
-                text_format.setBuffer(buffer_settings)
-                
-                # Apply text format to label settings
-                label_settings.setFormat(text_format)
-                
-                # Set label expression: PONDid on first line, volume on second line
-                label_expression = '"PONDid" || \'\\n\' || \'(RL=\' || "PONDRLmax" || \')\' || \'\\n\' || \'Vol =\' || "PONDvolume" || \' m³\' || \'\\n\' || \'Area=\' || "PONDarea" || \' m²\''
-                label_settings.fieldName = label_expression
-                label_settings.isExpression = True
-                
-                # Position labels in center of polygons (use polygon-specific placement)
-                try:
-                    # For polygon features, use Horizontal placement and allow degraded placement so labels dont disappear
-                    label_settings.placement = QgsPalLayerSettings.Horizontal  # Horizontal placement for polygons
-                    label_settings.placementSettings().allowDegradedPlacement = True
-
-                    feedback.pushInfo("Using Horizontal label placement for polygons")
-                except Exception as placement_error:
-                    feedback.pushInfo(f"Horizontal placement failed: {placement_error}, trying alternative")
-                    try:
-                        # Alternative placement
-                        label_settings.placement = 0  # Use numeric value for default
-                    except:
-                        feedback.pushInfo("Using default label placement")
-
-                # Enable labeling
-                label_settings.enabled = True
-                
-                # Apply labeling to layer
-                labeling = QgsVectorLayerSimpleLabeling(label_settings)
-                layer.setLabelsEnabled(True)
-                layer.setLabeling(labeling)
-                
-                # Trigger layer repaint
-                layer.triggerRepaint()
-                
-                return True
-            except Exception as e:
-                feedback.pushInfo(f"Could not apply styling to pond layer: {e}")
-                return False
-
-        # Optionally open pond outlines after running algorithm (always apply styling when added)
-        # If the user provided a final output path, move/copy the working shapefile to that location now.
-        # This prevents polygonize and intermediate steps from writing directly to the final path
-        # which can cause "Cannot overwrite an OGR layer in place" errors.
-        try:
-            if final_pond_outline_path:
-                # Ensure destination directory exists
-                dest_dir = os.path.dirname(final_pond_outline_path)
-                if dest_dir and not os.path.exists(dest_dir):
-                    os.makedirs(dest_dir)
-
-                # Use QgsVectorFileWriter to write working layer to final path
-                try:
-                    working_layer = QgsVectorLayer(pond_outline_output_path, "PondOutlinesWorking", "ogr")
-                    if not working_layer.isValid():
-                        feedback.pushWarning(f"Working pond outlines layer invalid; cannot write final output: {pond_outline_output_path}")
-                    else:
-                        save_options = QgsVectorFileWriter.SaveVectorOptions()
-                        #save_options.driverName = "ESRI Shapefile"
-                        save_options.fileEncoding = "utf-8"
-                        error = QgsVectorFileWriter.writeAsVectorFormatV3(working_layer, final_pond_outline_path, working_layer.transformContext(), save_options)
-                        if error[0] == QgsVectorFileWriter.NoError:
-                            feedback.pushInfo(f"Final pond outlines written to: {final_pond_outline_path}")
-                            # set the path used to add to project to the final path
-                            pond_outline_output_path = final_pond_outline_path
-                        else:
-                            feedback.reportError(f"Error writing final pond outlines: {error[1]}")
-                except Exception as e:
-                    feedback.pushWarning(f"Could not write final pond outlines: {e}")
-        except Exception:
-            # Non-fatal
-            pass
         
-        # Check if final layer got added to the map and style it if it did
-        outputted_layer = QgsVectorLayer(pond_outline_output_path, "PondOutlinesFinal", "ogr")
-        if outputted_layer.isValid():
-            # Apply styling
-            if apply_pond_styling(outputted_layer):
-                feedback.pushInfo("Pond outlines layer added to project with styling and labels.")
-            else:
-                feedback.pushInfo("Pond outlines layer added to project.")
-            QgsProject.instance().addMapLayer(outputted_layer)
-        else:
-            feedback.reportError(f"Could not add pond outlines layer to project: {pond_outline_output_path}")
+        # Use inherited helper to register a LayerPostProcessor (handles styling/grouping)
+        # enable loading outputs into the run group (postProcessAlgorithm of base class uses
+        self.load_outputs = True
+        display_name = "Pond Outlines"
+
+        # lets apply styling using the LayerPostProcessor
+        try:
+            self.handle_post_processing(
+                "OUTPUT_POND_OUTLINES",
+                pond_outline_output_path,
+                display_name,
+                context,
+                None,
+                None,
+                self.FILL_SYMBOL,
+                self.LABEL_EXPRESSION,
+                self.LABEL_TEXT_FORMAT,
+                self.LABEL_BUFFER_FORMAT
+                )
+        except Exception as e:
+            feedback.pushWarning(f"Could not apply styling/grouping to pond outlines layer: {e}")
 
         return {
             "OUTPUT_FILLED_RASTER": output_raster_path,

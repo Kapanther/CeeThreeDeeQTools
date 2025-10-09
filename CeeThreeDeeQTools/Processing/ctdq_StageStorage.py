@@ -17,6 +17,7 @@ from osgeo import gdal
 
 from qgis.core import (
     QgsProcessing,
+    QgsProcessingLayerPostProcessorInterface,  # new import for post-processor
     QgsProcessingAlgorithm,
     QgsProcessingContext,
     QgsProcessingFeedback,
@@ -38,14 +39,17 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer,  # Import QgsGraduatedSymbolRenderer for graduated styling
     QgsStyle,  # Import QgsStyle for color ramp
     QgsFeatureRequest,  # Import QgsFeatureRequest for materialize
+    QgsProcessingOutputLayerDefinition,  # import for registering output layer details
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QCoreApplication, QMetaType
 from ..ctdq_support import ctdprocessing_command_info, ctdprocessing_settingsdefaults, CTDQSupport
+from .ctdq_AlgoRun import ctdqAlgoRun  # Import the missing base class
+import traceback
 import processing  # Import processing for running algorithms
 
 
-class CalculateStageStoragePond(QgsProcessingAlgorithm):
+class CalculateStageStoragePond(ctdqAlgoRun):
     TOOL_NAME = "CalculateStageStoragePond"
     """
     Calcualtes the volumes/area at an increment for each polygon that represents a pond. Creates a seperate overlapping polygon for each slice and adds
@@ -59,6 +63,8 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
     OUTPUT_STAGE_STORAGE = "OUTPUT_STAGE_STORAGE"
     POND_ID_FIELD = "POND_ID_FIELD"
     OUTPUT_HTML_REPORT = "OUTPUT_HTML_REPORT"
+    COLOR_RAMP_NAME = "Spectral"  # Default color ramp name
+    COLOR_RAMP_FIELD = "ssMAXDPTH"  # Field to base color ramp on
 
     def name(self):
         return self.TOOL_NAME
@@ -74,6 +80,19 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
 
     def shortHelpString(self) -> str:
         return ctdprocessing_command_info[self.TOOL_NAME]["shortHelp"]
+
+    def __init__(self):
+        super().__init__()
+        #store StageStorage styler instance
+        self.styler_dict = {}
+        self.load_outputs = False
+
+    def postProcessAlgorithm(self, context, feedback):
+        if self.load_outputs:
+            project = context.project()
+            root = project.instance().layerTreeRoot()
+
+        return {}
 
     def initAlgorithm(self, config: Optional[dict[str, Any]] = None):
         """
@@ -133,16 +152,6 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         )
 
         self.addParameter(
-            QgsProcessingParameterVectorDestination(
-                self.OUTPUT_STAGE_STORAGE,
-                "Output Stage Storage Slices",                
-                type=QgsProcessing.TypeVectorAnyGeometry, 
-                createByDefault=True,
-                defaultValue=None                
-            )
-        )
-
-        self.addParameter(
             QgsProcessingParameterFileDestination(
                 self.OUTPUT_HTML_REPORT,
                 "Output HTML Report (Optional)",
@@ -150,6 +159,17 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
                 optional=True
             )
         )
+
+        self.addParameter(
+            QgsProcessingParameterVectorDestination(
+                "OUTPUT_STAGE_STORAGE",      
+                "Output Stage Storage",        
+                optional=False,
+                defaultValue=None                
+            )
+        )
+
+
 
     def processAlgorithm(
         self,
@@ -180,11 +200,17 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             ponds_layer = ponds_source.materialize(QgsFeatureRequest())
         
         rl_field = self.parameterAsString(parameters, self.INPUT_PONDS_RL_FIELD, context)
-        storage_interval = self.parameterAsDouble(parameters, self.STORAGE_INTERVAL, context)
-        output_layer = self.parameterAsOutputLayer(parameters, self.OUTPUT_STAGE_STORAGE, context)
+        storage_interval = self.parameterAsDouble(parameters, self.STORAGE_INTERVAL, context)        
         pond_id_field = self.parameterAsString(parameters, self.POND_ID_FIELD, context)
         output_html_report = self.parameterAsFile(parameters, self.OUTPUT_HTML_REPORT, context)
+        output_layer = self.parameterAsOutputLayer(parameters, "OUTPUT_STAGE_STORAGE", context)
         
+
+        # give better names to output_layer
+        if not output_layer:
+            output_layer = os.path.join(tempfile.gettempdir(), f"OUTPUT_STAGE_STORAGE_{uuid.uuid4().hex}.gpkg")
+            feedback.pushInfo(f"No OUTPUT_STAGE_STORAGE name provided; using temporary path: {output_layer}")
+
         # Get precision values from global settings with fallback to 3 decimal places
         precision_elevation = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_elevation", 3)
         precision_area = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_area", 3)
@@ -227,7 +253,7 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             output_fields,
             QgsWkbTypes.Polygon,
             ponds_layer.crs(),
-            context.transformContext(),
+            ponds_layer.transformContext(),
             save_opts
         )
         writer = writer_created[0] if isinstance(writer_created, tuple) else writer_created
@@ -257,15 +283,16 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
             feedback.pushInfo(f"Processing Pond ID: {pond_id} with RLmax: {rl_max}")
 
             # Create a temporary layer for the current pond polygon
+            temp_pond_save_options = QgsVectorFileWriter.SaveVectorOptions()
+            temp_pond_save_options.fileEncoding = "utf-8"
+            temp_pond_save_options.onlySelectedFeatures = True
             temp_current_pond = os.path.join(tempfile.gettempdir(), f"current_pond_{pond_id}_{run_uuid}.gpkg")
             ponds_layer.selectByExpression(f'"{pond_id_field}" = \'{pond_id}\'', QgsVectorLayer.SetSelection)
-            QgsVectorFileWriter.writeAsVectorFormat(
+            QgsVectorFileWriter.writeAsVectorFormatV3(
                 ponds_layer,
                 temp_current_pond,
-                "utf-8",
-                ponds_layer.crs(),
-                "GPKG",
-                onlySelected=True
+                ponds_layer.transformContext(),
+                temp_pond_save_options
             )
             ponds_layer.removeSelection()
 
@@ -468,40 +495,31 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
         del writer
         feedback.pushInfo(f"Output stage storage layer saved to: {output_layer}")
 
-        # Load the output layer path into a QgsVectorLayer for CRS/styling/add-to-project
-        output_layer_obj = QgsVectorLayer(output_layer, "Output Stage Storage Slices", "ogr")
-        if output_layer_obj.isValid():
-            if output_layer_obj.crs() != ponds_layer.crs():
-                feedback.pushInfo("Setting CRS of the output layer to match the ponds layer...")
-                output_layer_obj.setCrs(ponds_layer.crs())
-
-            # Apply graduated styling to the output layer (use non-deprecated factory)
-            feedback.pushInfo("Applying graduated styling to the output layer...")
-            renderer = QgsGraduatedSymbolRenderer.createRenderer(
-                output_layer_obj,
-                "ssMAXDPTH",
-                QgsGraduatedSymbolRenderer.Quantile,
-                5
+        # Use inherited helper to register a LayerPostProcessor (handles styling/grouping)
+        # enable loading outputs into the run group (postProcessAlgorithm of base class uses this flag)
+        self.load_outputs = True
+        display_name = "Stage Storage Slices"
+        # entity name can be the same as parameter key, or a short id for the output
+        try:
+            self.handle_post_processing(
+                "OUTPUT_STAGE_STORAGE",
+                output_layer,
+                display_name,
+                context,
+                self.COLOR_RAMP_NAME,
+                self.COLOR_RAMP_FIELD,
             )
-            color_ramp = QgsStyle().defaultStyle().colorRamp("Spectral")
-            if color_ramp and renderer:
-                renderer.updateColorRamp(color_ramp)
-            if renderer:
-                output_layer_obj.setRenderer(renderer)
-
-            # Add the styled layer to the project
-            QgsProject.instance().addMapLayer(output_layer_obj)
-            feedback.pushInfo("Graduated styling applied using the 'ssMAXDPTH' field with the Spectral color scheme.")
-        else:
-            feedback.reportError("Output layer is invalid. CRS assignment and styling skipped.")
+            feedback.pushInfo("Registered output layer with inherited post-processing handler.")
+        except Exception as e_pp:
+            feedback.pushWarning(f"Failed to register output with inherited post-processing handler: {e_pp}")
 
         # Deselect all features in the ponds layer
         ponds_layer.removeSelection()
         feedback.pushInfo("Deselected all features in the ponds layer.")
 
         return {
-            self.OUTPUT_STAGE_STORAGE: output_layer,
-            self.OUTPUT_HTML_REPORT: output_html_report
+            self.OUTPUT_HTML_REPORT: output_html_report,
+            self.OUTPUT_STAGE_STORAGE: output_layer            
         }
 
     def tr(self, string):
@@ -509,3 +527,4 @@ class CalculateStageStoragePond(QgsProcessingAlgorithm):
 
     def createInstance(self):
         return self.__class__()
+

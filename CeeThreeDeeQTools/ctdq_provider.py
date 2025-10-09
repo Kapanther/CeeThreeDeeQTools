@@ -30,25 +30,25 @@ __copyright__ = '(C) 2025 by CeeThreeDee'
 
 __revision__ = '$Format:%H$'
 
-from qgis.core import QgsProcessingProvider
+from qgis.core import QgsProcessingProvider, QgsProcessingAlgorithm, Qgis
+from qgis.gui import QgisInterface
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
 from .ctdq_support import ctdprocessing_settingsdefaults
-from .Processing.ctdq_ExportDataSourcesMap import ExportDataSourcesMap
-from .Processing.ctdq_GenerateCatchments_MinArea import GenerateCatchmentsMinArea
-from .Processing.ctdq_ExportProjectLayerStyles import ExportProjectLayerStyles
-from .Processing.ctdq_FindRasterPonds import FindRasterPonds
-from .Processing.ctdq_StageStorage import CalculateStageStoragePond
+from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, GenerateCatchmentsMinArea, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond
+
 import os
+import inspect
 
 
 class CTDQProvider(QgsProcessingProvider):
 
-    def __init__(self):
+    def __init__(self, iface: QgisInterface):
         """
         Default constructor.
-        """
+        """        
+        self.iface = iface
         QgsProcessingProvider.__init__(self)
 
     def unload(self):
@@ -82,11 +82,36 @@ class CTDQProvider(QgsProcessingProvider):
         """
         Loads all algorithms belonging to this provider.
         """
+        """
+        self.iface.messageBar().pushMessage("Loading CeeThreeDeeQTools algorithms...")
+        processing_algos = [
+            m[1] 
+            for m in inspect.getmembers(Processing, inspect.isclass)
+            if issubclass(m[1], QgsProcessingAlgorithm)
+        ]
+        """
+        """for alg_class in processing_algos:
+            try:
+                # Check if the constructor takes only 'self'
+                sig = inspect.signature(alg_class.__init__)
+                params = list(sig.parameters.values())
+                # The first parameter should be 'self', so total length should be 1 for no-arg constructor
+                if len(params) == 1:
+                    alg_instance = alg_class()
+                    self.addAlgorithm(alg_instance)
+                    self.iface.messageBar().pushMessage(f"Loaded algorithm: {alg_class.__name__}")
+                else:
+                    self.iface.messageBar().pushWarning("Warning", f"Skipped algorithm {alg_class.__name__}: constructor requires arguments.")
+            except Exception as e:
+                self.iface.messageBar().pushCritical("Error", f"Error loading algorithm {alg_class.__name__}: {e}") 
+        """
         self.addAlgorithm(ExportDataSourcesMap())
         self.addAlgorithm(GenerateCatchmentsMinArea())
         self.addAlgorithm(ExportProjectLayerStyles())      
         self.addAlgorithm(FindRasterPonds())  
         self.addAlgorithm(CalculateStageStoragePond())
+        # add additional algorithms here
+
         # add additional algorithms here
 
     def id(self):

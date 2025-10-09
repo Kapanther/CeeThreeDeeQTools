@@ -119,6 +119,8 @@ ctdprocessing_command_info = {
         "disp": "Calculate Stage Storage - Pond",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
+        "color_ramp_name": "Spectral",
+        "color_ramp_field": "ssMAXDPTH",
         "shortHelp": (
             "Calculate stage-storage curves for pond polygons."
             "<h3>Parameters</h3>"
