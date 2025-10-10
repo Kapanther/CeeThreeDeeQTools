@@ -46,6 +46,11 @@ class ctdqAlgoRun(ctdqAlgoBase):
         # necessary to store LayerPostProcessor instances in class variable because of scoping issue
         self.styler_dict = {}
         self.load_outputs = False
+        # default run name for grouping (ensure attribute exists for postProcessAlgorithm)
+        try:
+            self.run_name = self.name() if hasattr(self, "name") else self.__class__.__name__
+        except Exception:
+            self.run_name = self.__class__.__name__
 
     def group(self):
         return self.tr("Analysis")
@@ -65,7 +70,8 @@ class ctdqAlgoRun(ctdqAlgoBase):
 
     def handle_post_processing(self,
                                 entity: str,
-                                layer, display_name,
+                                layer_path: str, 
+                                display_name,
                                 context, 
                                 color_ramp_name: str = None, 
                                 color_ramp_field: str = None, 
@@ -78,15 +84,15 @@ class ctdqAlgoRun(ctdqAlgoBase):
             display_name, context.project(), display_name
         )
         context.addLayerToLoadOnCompletion(
-            layer,
+            layer_path,
             layer_details,
         )
         
-        if context.willLoadLayerOnCompletion(layer):
-            self.styler_dict[layer] = LayerPostProcessor(
+        if context.willLoadLayerOnCompletion(layer_path):
+            self.styler_dict[layer_path] = LayerPostProcessor(
                 display_name, color_ramp_name, color_ramp_field, fill_symbol_definition,
                 label_field_expression, label_text_format, label_buffer_format
             )
-            context.layerToLoadOnCompletionDetails(layer).setPostProcessor(
-                self.styler_dict[layer]
+            context.layerToLoadOnCompletionDetails(layer_path).setPostProcessor(
+                self.styler_dict[layer_path]
             )

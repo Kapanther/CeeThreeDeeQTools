@@ -21,7 +21,8 @@ from qgis.core import (
 from qgis.PyQt.QtGui import QColor
 
 from qgis.utils import iface
-from qgis.PyQt.QtCore import QItemSelectionModel, Qt
+from qgis.PyQt.QtCore import QItemSelectionModel, Qt, QCoreApplication
+import inspect
 
 import processing
 
@@ -66,15 +67,29 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                         text_format = self.label_text_format
                         if( self.label_buffer_format):
                             text_format.setBuffer(self.label_buffer_format)
-                        label_settings.setFormat(text_format)  # Apply text format if provided
-                    label_settings.fieldName = self.label_field_expression
+                        label_settings.setFormat(text_format)  # Apply text format if provided                        
+                    label_settings.fieldName = self.label_field_expression       
+                    label_settings.isExpression = True  # Treat fieldName as an expression             
+                    label_settings.placement = QgsPalLayerSettings.Horizontal                
                     label_settings.placementSettings().allowDegradedPlacement = True
+
                     label_settings.enabled = True  # Enable labeling
                     
                     labeling = QgsVectorLayerSimpleLabeling(label_settings)
-                    layer.setLabelsEnabled(True)
                     layer.setLabeling(labeling)
+                    layer.setLabelsEnabled(True)                    
                     layer.triggerRepaint()
+                    
+                    # attempt to refresh legend/symbology view (best-effort)
+                    try:
+                        iface.layerTreeView().refreshLayerSymbology(layer.id())
+                        QCoreApplication.processEvents()
+                    except Exception:
+                        try:
+                            # older/newer API differences — ignore failures
+                            iface.layerTreeView().refreshLayerSymbology()
+                        except Exception:
+                            pass
                 except Exception as e_l:
                     feedback.pushInfo(f"Styler: failed to apply labeling: {e_l}")
 
@@ -82,20 +97,35 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
             if self.color_ramp and self.color_ramp_field:                
                 feedback.pushInfo(f"Styler: applying graduated renderer on field {self.color_ramp_field}")
                 try:
-                    # Prefer the convenience factory if present (newer QGIS). Some builds have a different signature,
-                    # so fall back to creating an instance and calling updateClasses().
-                    try:
-                        renderer = QgsGraduatedSymbolRenderer.createRenderer(
-                            layer,
-                            self.color_ramp_field,
-                            QgsGraduatedSymbolRenderer.Quantile,
-                            5
-                        )
-                    except TypeError:
-                        # Fallback for QGIS builds where createRenderer signature differs
+                    # Prefer the convenience factory if present (newer QGIS).
+                    renderer = None
+                    create_fn = getattr(QgsGraduatedSymbolRenderer, "createRenderer", None)
+                    if callable(create_fn):
+                        try:
+                            renderer = create_fn(
+                                layer,
+                                self.color_ramp_field,
+                                QgsGraduatedSymbolRenderer.Quantile,
+                                5,
+                            )
+                        except Exception as e_cr:
+                            # Log the exception and the signature to diagnose API mismatch
+                            feedback.pushInfo(f"Styler: createRenderer raised: {e_cr}")
+                            try:
+                                sig = inspect.signature(create_fn)
+                                feedback.pushInfo(f"Styler: createRenderer signature: {sig}")
+                            except Exception:
+                                feedback.pushInfo("Styler: could not inspect createRenderer signature.")
+                            renderer = None
+                    else:
+                        feedback.pushInfo("Styler: QgsGraduatedSymbolRenderer.createRenderer not available on this build.")
+
+                    # If factory failed or not available, fall back to creating renderer and calling updateClasses()
+                    if renderer is None:
                         renderer = QgsGraduatedSymbolRenderer()
                         renderer.setClassAttribute(self.color_ramp_field)
                         try:
+                            # updateClasses is deprecated in some builds but still available as a fallback
                             renderer.updateClasses(layer, QgsGraduatedSymbolRenderer.Quantile, 5)
                         except Exception as e_uc:
                             feedback.pushInfo(f"Styler: updateClasses fallback failed: {e_uc}")

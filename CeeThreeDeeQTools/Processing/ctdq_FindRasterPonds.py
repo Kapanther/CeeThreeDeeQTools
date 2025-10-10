@@ -232,13 +232,6 @@ class FindRasterPonds(ctdqAlgoRun):
             pond_outline_output_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_OUTLINES_{uuid.uuid4().hex}.gpkg")
             feedback.pushInfo(f"No OUTPUT_POND_OUTLINES provided; using temporary path: {pond_outline_output_path}")
 
-        # Determine final vs working pond outlines output
-        # The Processing framework may return the literal string 'TEMPORARY_OUTPUT' when the
-        # user selected a temporary output. Detect that and treat final_output_path as None.
-        final_pond_outline_path = pond_outline_output_path
-        if isinstance(final_pond_outline_path, str) and final_pond_outline_path.upper() == 'TEMPORARY_OUTPUT':
-            final_pond_outline_path = None
-
         # Log paths for debugging
         feedback.pushInfo(f"Input raster: {input_raster.name()}")
         feedback.pushInfo(f"Output raster path: {output_raster_path}")
@@ -925,7 +918,13 @@ class FindRasterPonds(ctdqAlgoRun):
             if not pond_layer_upd.isValid():
                 feedback.pushWarning(f"Working pond outlines layer invalid; cannot write final output: {pond_outline_output_path}")
             else:
-                pond_outline_output_path = pond_layer_upd
+                #lets write the pond_Layer_upd to the pond_outline_output_path
+                error = QgsVectorFileWriter.writeAsVectorFormatV3(
+                    pond_layer_upd,
+                    pond_outline_output_path,
+                    pond_layer_upd.transformContext(),
+                    QgsVectorFileWriter.SaveVectorOptions()
+                )
         except Exception as e:
             feedback.pushWarning(f"Could not write final pond outlines: {e}")
 
