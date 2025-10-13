@@ -28,6 +28,7 @@ from qgis.core import (
     QgsProcessingParameterFileDestination,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterRasterLayer,  # Import QgsProcessingParameterRasterLayer for raster input
+    QgsProcessingParameterNumber,  # Import QgsProcessingParameterNumber for numeric input
     QgsProcessingException,
     QgsVectorFileWriter,
     QgsProcessingOutputLayerDefinition,
@@ -49,6 +50,7 @@ class CatchmentsAndStreams(QgsProcessingAlgorithm):
     """
 
     INPUT_DEM = "INPUT_DEM"
+    INPUT_THRESHOLD = "INPUT_THRESHOLD"
     OUTPUT_CATCHMENTS = "OUTPUT_CATCHMENTS"
     OUTPUT_STREAMS = "OUTPUT_STREAMS"
 
@@ -80,6 +82,14 @@ class CatchmentsAndStreams(QgsProcessingAlgorithm):
         )
 
         self.addParameter(
+            QgsProcessingParameterNumber(
+                self.INPUT_THRESHOLD,
+                "Flow Threshold",
+                defaultValue=4000
+            )
+        )
+
+        self.addParameter(
             QgsProcessingParameterVectorDestination(
                 self.OUTPUT_CATCHMENTS,
                 "Output Catchments Layer",
@@ -105,44 +115,54 @@ class CatchmentsAndStreams(QgsProcessingAlgorithm):
         context: QgsProcessingContext,
         model_feedback: QgsProcessingMultiStepFeedback,
     ) -> dict[str, Any]:
-        """
-        Main Processor function to generate catchments and streams from a DEM.
-        """
-        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-        # overall progress through the model
-        feedback = QgsProcessingMultiStepFeedback(6, model_feedback)
-        results = {}
-        outputs = {}
+        try:
+            """
+            Main Processor function to generate catchments and streams from a DEM.
+            """
+            #parameterrised inputs
+            input_dem = self.parameterAsRasterLayer(parameters, "INPUT_DEM", context)
+            input_threshold = self.parameterAsDouble(parameters, "INPUT_THRESHOLD", context)
 
-        # lets use R.watershed to generate the watersheds and stream rasters initially
-        alg_params = {
-            '-4': False,
-            '-a': False,
-            '-b': False,
-            '-m': False,
-            '-s': False,
-            'GRASS_RASTER_FORMAT_META': None,
-            'GRASS_RASTER_FORMAT_OPT': None,
-            'GRASS_REGION_CELLSIZE_PARAMETER': 0,
-            'GRASS_REGION_PARAMETER': None,
-            'blocking': None,
-            'convergence': 5,
-            'depression': None,
-            'disturbed_land': None,
-            'elevation': parameters['eg'],
-            'flow': None,
-            'max_slope_length': None,
-            'memory': 300,
-            'threshold': parameters['mincatchsize'],
-            'basin': QgsProcessing.TEMPORARY_OUTPUT,
-            'stream': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['Rwatershed'] = processing.run('grass7:r.watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-        
+            # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
+            # overall progress through the model
+            feedback = QgsProcessingMultiStepFeedback(6, model_feedback)
 
+            # generate a fill direction raster using the DEM
+            
+            dem_filled = processing.run("grass7:r_fill.dir", {
+                'input': input_dem,
+                'output': QgsProcessing.TEMPORARY_OUTPUT,
+                'direction': QgsProcessing.TEMPORARY_OUTPUT,
+                'areas': QgsProcessing.TEMPORARY_OUTPUT,
+                'format': 0,
+            }, context=context, feedback=feedback)
 
-        # Return the output path
-        return {self.OUTPUT: output_layer}
+            dem_flow_accumulation = processing.run("grass7:r.watershed", {
+                'elevation': dem_filled,
+                'accumulation': QgsProcessing.TEMPORARY_OUTPUT,
+                'drainage': QgsProcessing.TEMPORARY_OUTPUT,
+                'threshold': dem_filled.rasterUnitsPerPixelX(),
+                '-s': True,
+                '-m': True
+            }, context=context, feedback=feedback)['accumulation']
+
+            streams = processing.run("grass7:r.stream.extract", {
+                'elevation': dem_filled,
+                'accumulation': dem_flow_accumulation,
+                'threshold': input_threshold,
+                'stream_vector': QgsProcessing.TEMPORARY_OUTPUT,
+                'stream_raster': QgsProcessing.TEMPORARY_OUTPUT,
+                'direction': QgsProcessing.TEMPORARY_OUTPUT,
+                'GRASS_OUTPUT_TYPE_PARAMETER': 2
+            }, context=context, feedback=feedback)['stream_vector']
+
+            stream_sink,stream_dest_id = self.parameterAsSink(parameters,self.OUTPUT_STREAMS,context,
+                                                              streams.fields(),QgsWkbTypes.LineString,input_dem.crs())
+
+            # Return the output paths
+            return {self.OUTPUT_STREAMS: stream_sink}
+        except Exception as e:
+            raise QgsProcessingException(f"Error in {self.TOOL_NAME}: {e}")
 
     def tr(self, string):
         return QCoreApplication.translate('Processing', string)

@@ -30,13 +30,14 @@ __copyright__ = '(C) 2025 by CeeThreeDee'
 
 __revision__ = '$Format:%H$'
 
+from CeeThreeDeeQTools.Processing.ctdq_CatchmentsAndStreams import CatchmentsAndStreams
 from qgis.core import QgsProcessingProvider, QgsProcessingAlgorithm, Qgis
 from qgis.gui import QgisInterface
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
 from .ctdq_support import ctdprocessing_settingsdefaults
-from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, GenerateCatchmentsMinArea, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond
+from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, GenerateCatchmentsMinArea, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams
 
 import os
 import inspect
@@ -107,6 +108,7 @@ class CTDQProvider(QgsProcessingProvider):
         """
         self.addAlgorithm(ExportDataSourcesMap())
         self.addAlgorithm(GenerateCatchmentsMinArea())
+        self.addAlgorithm(CatchmentsAndStreams())
         self.addAlgorithm(ExportProjectLayerStyles())      
         self.addAlgorithm(FindRasterPonds())  
         self.addAlgorithm(CalculateStageStoragePond())

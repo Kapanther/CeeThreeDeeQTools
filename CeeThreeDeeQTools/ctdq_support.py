@@ -119,8 +119,6 @@ ctdprocessing_command_info = {
         "disp": "Calculate Stage Storage - Pond",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
-        "color_ramp_name": "Spectral",
-        "color_ramp_field": "ssMAXDPTH",
         "shortHelp": (
             "Calculate stage-storage curves for pond polygons."
             "<h3>Parameters</h3>"
@@ -133,7 +131,26 @@ ctdprocessing_command_info = {
             "<ul>"
             f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
+    },
+    "CatchmentsAndStreams": {
+        "disp": "Generate Catchments and Streams",
+        "group": ctdgroup_info[2]["group"],
+        "group_id": ctdgroup_info[2]["group_id"],
+        "shortHelp": (
+            "Generates both catchments and stream vectors from a DEM. Streams also contain stream order (both Strahler and Shreve) and catchments are linked to streams."
+            "<h3>Parameters</h3>"
+            "<ul>"
+            f"<li>{fop}Input DEM:{fcc} A DEM to be processed.</li>"
+            f"<li>{fop}Output Catchments Layer:{fcc} The output polygon layer for the catchments.</li>"
+            f"<li>{fop}Output Streams Layer:{fcc} The output line layer for the streams.</li>"
+            "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
+            "</ul>"
+        )
     }
+
 }
 
 
