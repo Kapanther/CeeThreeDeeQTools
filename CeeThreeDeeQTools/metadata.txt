@@ -6,7 +6,7 @@
 name=CeeThreeDee Qtools
 qgisMinimumVersion=3.0
 description=A suite of handy QGIS tools for Civil/Geo Engineers and Designers
-version=0.2
+version=0.3
 author=CeeThreeDee
 email=info@ceethreedee.com
 
