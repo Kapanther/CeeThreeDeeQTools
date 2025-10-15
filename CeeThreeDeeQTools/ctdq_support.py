@@ -133,7 +133,7 @@ ctdprocessing_command_info = {
         )
     },
     "CatchmentsAndStreams": {
-        "disp": "Generate Catchments and Streams",
+        "disp": "Generate Catchments and Streams (WIP)",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (

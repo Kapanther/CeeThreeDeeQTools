@@ -36,10 +36,12 @@ from qgis.core import (
     QgsCoordinateTransformContext,
     QgsProcessingUtils,
     QgsRasterLayer,  # Import QgsRasterLayer for raster support
+    QgsFeatureSink,  # Import QgsFeatureSink for feature sink operations
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
 from ..ctdq_support import ctdprocessing_command_info
+from ..Functions import ctdq_raster_functions
 import processing  # Import processing for running algorithms
 
 
@@ -129,19 +131,13 @@ class CatchmentsAndStreams(QgsProcessingAlgorithm):
 
             # generate a fill direction raster using the DEM
             
-            dem_filled = processing.run("grass7:r_fill.dir", {
-                'input': input_dem,
-                'output': QgsProcessing.TEMPORARY_OUTPUT,
-                'direction': QgsProcessing.TEMPORARY_OUTPUT,
-                'areas': QgsProcessing.TEMPORARY_OUTPUT,
-                'format': 0,
-            }, context=context, feedback=feedback)
+            dem_filled = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fillsinks(input_dem, feedback)
 
             dem_flow_accumulation = processing.run("grass7:r.watershed", {
                 'elevation': dem_filled,
                 'accumulation': QgsProcessing.TEMPORARY_OUTPUT,
                 'drainage': QgsProcessing.TEMPORARY_OUTPUT,
-                'threshold': dem_filled.rasterUnitsPerPixelX(),
+                'threshold': input_threshold,
                 '-s': True,
                 '-m': True
             }, context=context, feedback=feedback)['accumulation']
@@ -158,6 +154,15 @@ class CatchmentsAndStreams(QgsProcessingAlgorithm):
 
             stream_sink,stream_dest_id = self.parameterAsSink(parameters,self.OUTPUT_STREAMS,context,
                                                               streams.fields(),QgsWkbTypes.LineString,input_dem.crs())
+            if stream_sink is None:
+                raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT_STREAMS))
+            
+            feature_count = streams.featureCount()
+            for current, f in enumerate(streams.getFeatures()):
+                if feedback.isCanceled():
+                    break
+                stream_sink.addFeature(f, QgsFeatureSink.FastInsert)
+                feedback.setProgress(int((current + 1) / feature_count * 100))
 
             # Return the output paths
             return {self.OUTPUT_STREAMS: stream_sink}

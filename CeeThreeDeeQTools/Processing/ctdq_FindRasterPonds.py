@@ -46,36 +46,23 @@ from qgis.core import (
     QgsTextFormat,
     QgsTextBufferSettings,
     QgsExpression,
-    QgsCallout  # <-- Added import for QgsTextCallout
+    QgsCallout,  # <-- Added import for QgsTextCallout
+    QgsProcessing  # <-- Added import for QgsProcessing
 )
+import tempfile, uuid, os, processing
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString
 from ..ctdq_support import CTDQSupport, ctdprocessing_command_info
+from ..Functions import ctdq_raster_functions
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
-import heapq
+from osgeo import gdal
 import numpy as np
-import processing
-import os
 from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor
 # endregion
 
 class FindRasterPonds(ctdqAlgoRun):
-    # region Class: FindRasterPonds and helpers
-    # class-level imports removed; use module-level imports
 
-    class PriorityQueue:
-        def __init__(self):
-            self.elements = []
-
-        def empty(self):
-            return not self.elements
-
-        def put(self, item, priority):
-            heapq.heappush(self.elements, (priority, item))
-
-        def get(self):
-            return heapq.heappop(self.elements)[1]
     TOOL_NAME = "FindRasterPonds"
     """
     QGIS Processing Algorithm to detect ponds (sinks) in a raster and output a vector layer with polygons representing the ponds. 
@@ -208,7 +195,7 @@ class FindRasterPonds(ctdqAlgoRun):
         # Get input raster and output path
         input_raster = self.parameterAsRasterLayer(parameters, "GROUND_RASTER", context)
         output_raster_path = self.parameterAsOutputLayer(parameters, "OUTPUT_FILLED_RASTER", context)
-        output_pond_depth_raster_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER", context)
+        output_pond_depth_raster = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER", context)
         output_pond_depth_raster_valid_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_DEPTH_RASTER_VALID", context)
         pond_outline_output_path = self.parameterAsOutputLayer(parameters, "OUTPUT_POND_OUTLINES", context)
         
@@ -217,27 +204,6 @@ class FindRasterPonds(ctdqAlgoRun):
         precision_area = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_area", 3)
         precision_volume = CTDQSupport.get_precision_setting_with_fallback("ctdq_precision_volume", 3)
         
-        # If optional outputs weren't provided, write to temp files to avoid empty-path errors
-        import tempfile, uuid
-        if not output_raster_path:
-            output_raster_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_FILLED_RASTER_{uuid.uuid4().hex}.tif")
-            feedback.pushInfo(f"No OUTPUT_FILLED_RASTER provided; using temporary path: {output_raster_path}")
-        if not output_pond_depth_raster_path:
-            output_pond_depth_raster_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_DEPTH_RASTER_{uuid.uuid4().hex}.tif")
-            feedback.pushInfo(f"No OUTPUT_POND_DEPTH_RASTER provided; using temporary path: {output_pond_depth_raster_path}")
-        if not output_pond_depth_raster_valid_path:
-            output_pond_depth_raster_valid_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_DEPTH_RASTER_VALID_{uuid.uuid4().hex}.tif")
-            feedback.pushInfo(f"No OUTPUT_POND_DEPTH_RASTER_VALID provided; using temporary path: {output_pond_depth_raster_valid_path}")
-        if not pond_outline_output_path:
-            pond_outline_output_path = os.path.join(tempfile.gettempdir(), f"OUTPUT_POND_OUTLINES_{uuid.uuid4().hex}.gpkg")
-            feedback.pushInfo(f"No OUTPUT_POND_OUTLINES provided; using temporary path: {pond_outline_output_path}")
-
-        # Log paths for debugging
-        feedback.pushInfo(f"Input raster: {input_raster.name()}")
-        feedback.pushInfo(f"Output raster path: {output_raster_path}")
-        feedback.pushInfo(f"Output pond depth raster path: {output_pond_depth_raster_path}")
-        feedback.pushInfo(f"Output valid pond depth raster path: {output_pond_depth_raster_valid_path}")
-        feedback.pushInfo(f"Output working pond outlines path: {pond_outline_output_path}")
         # initialize progress
         try:
             feedback.setProgress(0)
@@ -245,126 +211,12 @@ class FindRasterPonds(ctdqAlgoRun):
             # some feedback implementations may not support setProgress
             pass
 
-        # endregion
-
-        # region Process: Read raster into numpy DEM
-        # Get raster properties
+        # get key raster stats and 
         provider = input_raster.dataProvider()
         extent = input_raster.extent()
         width = input_raster.width()
         height = input_raster.height()
         no_data_value = provider.sourceNoDataValue(1)
-
-        # Read raster into a numpy array with shape (height, width).
-        # Prefer GDAL ReadAsArray (preserves row/col ordering); if that fails, fall back to provider.block.
-        dem = np.zeros((height, width), dtype=np.float32)
-        read_ok = False
-        src_path = provider.dataSourceUri()
-        try:
-            from osgeo import gdal
-            ds_in = gdal.Open(src_path)
-            if ds_in is not None:
-                band = ds_in.GetRasterBand(1)
-                arr = band.ReadAsArray()
-                if arr is not None:
-                    feedback.pushInfo(f"GDAL ReadAsArray shape: {arr.shape}")
-                    # Expect (rows, cols) == (height, width)
-                    if arr.shape == (height, width):
-                        dem = arr.astype(np.float32)
-                        nd = band.GetNoDataValue()
-                        if nd is not None:
-                            dem[dem == nd] = no_data_value
-                        read_ok = True
-                    else:
-                        feedback.pushInfo(f"GDAL array shape {arr.shape} does not match expected (height,width)=({height},{width}). Will fallback to provider.block().")
-                ds_in = None
-        except Exception as e:
-            feedback.pushInfo(f"GDAL ReadAsArray failed: {e}; falling back to provider.block()")
-
-        if not read_ok:
-            feedback.pushInfo("Using provider.block fallback to build numpy DEM (slower)")
-            block = provider.block(1, extent, width, height)
-            # update progress every few rows to keep UI responsive
-            row_update = max(1, height // 50)
-            for y in range(height):
-                if feedback.isCanceled():
-                    feedback.pushInfo("Processing canceled during raster read.")
-                    return {}
-                for x in range(width):
-                    try:
-                        value = block.value(x, y)
-                    except Exception:
-                        # Defensive: if block.value misbehaves, set nodata
-                        value = None
-                    dem[y, x] = float(value) if value is not None else -9999
-                if (y % row_update) == 0:
-                    try:
-                        pct = int(5 + (y / float(height)) * 10)
-                        feedback.setProgress(pct)
-                    except Exception:
-                        pass
-        feedback.pushInfo(f"dem array shape after read: {dem.shape}, dtype: {dem.dtype}")
-
-    # endregion
-
-    # region Process: Sink-fill (priority queue propagation)
-    # Initialize priority queue and visited mask (row=y, col=x)
-        pq = self.PriorityQueue()
-        visited = np.zeros((height, width), dtype=bool)
-        # add top and bottom rows
-        for x in range(width):
-            if dem[0, x] != no_data_value:
-                pq.put((0, x), dem[0, x])
-                visited[0, x] = True
-            if dem[height - 1, x] != no_data_value:
-                pq.put((height - 1, x), dem[height - 1, x])
-                visited[height - 1, x] = True
-        # add left and right columns
-        for y in range(1, height - 1):
-            if dem[y, 0] != no_data_value:
-                pq.put((y, 0), dem[y, 0])
-                visited[y, 0] = True
-            if dem[y, width - 1] != no_data_value:
-                pq.put((y, width - 1), dem[y, width - 1])
-                visited[y, width - 1] = True
-
-        # Main loop: process cells from the priority queue (row=y, col=x)
-        filled_dem = dem.copy()
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # (dy, dx)
-        # We'll track progress by processed nodes vs total cells as an estimate
-        total_cells = float(max(1, height * width))
-        processed = 0
-        update_step = max(1, int(total_cells // 200))
-        while not pq.empty():
-            if feedback.isCanceled():
-                feedback.pushInfo("Processing canceled during sink-fill step.")
-                return {}
-            y, x = pq.get()
-            processed += 1
-            for dy, dx in directions:
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < height and 0 <= nx < width:
-                    if not visited[ny, nx] and dem[ny, nx] != no_data_value:
-                        if filled_dem[ny, nx] < filled_dem[y, x]:
-                            filled_dem[ny, nx] = filled_dem[y, x]
-                        pq.put((ny, nx), filled_dem[ny, nx])
-                        visited[ny, nx] = True
-            if (processed % update_step) == 0:
-                try:
-                    pct = int(15 + (processed / total_cells) * 35)
-                    feedback.setProgress(min(90, pct))
-                except Exception:
-                    pass
-
-        # Ensure output directory exists
-        output_dir = os.path.dirname(output_raster_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        # Write filled raster to disk using GDAL
-        from osgeo import gdal
-        driver = gdal.GetDriverByName('GTiff')
-
-        # Try to preserve the source raster's exact GDAL geotransform and projection
         geotransform = None
         proj_wkt = None
         try:
@@ -399,199 +251,58 @@ class FindRasterPonds(ctdqAlgoRun):
         if not proj_wkt:
             proj_wkt = input_raster.crs().toWkt()
 
-        out_raster = driver.Create(output_raster_path, width, height, 1, gdal.GDT_Float32)
-        out_raster.SetGeoTransform(geotransform)
-        out_raster.SetProjection(proj_wkt)
-        out_band = out_raster.GetRasterBand(1)
-        # Prepare filled_dem for writing and add diagnostics
-        try:
-            arr = np.ascontiguousarray(filled_dem.astype(np.float32))
-        except Exception as e:
-            feedback.reportError(f"Failed to prepare filled_dem array for writing: {e}")
-            out_raster = None
+
+
+        filled_dem = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fillsinks(input_raster, feedback)
+        dem = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_asnumpy(input_raster, feedback)
+
+               
+        # Check if both arrays are valid before proceeding
+        if filled_dem is None:
+            feedback.reportError("Failed to generate filled DEM array.")
             return {}
-        feedback.pushInfo(f"filled_dem array shape: {arr.shape}, dtype: {arr.dtype}")
-        try:
-            xs = out_raster.RasterXSize
-            ys = out_raster.RasterYSize
-            feedback.pushInfo(f"GDAL out_raster size: xsize={xs}, ysize={ys}")
-        except Exception:
-            feedback.pushInfo("Could not read out_raster size for logging")
-        # GDAL expects (rows, cols) == (height, width)
-        if arr.shape != (height, width):
-            feedback.reportError(f"filled_dem shape {arr.shape} does not match expected (height,width)=({height},{width}). Aborting write.")
-            out_raster = None
+        if dem is None:
+            feedback.reportError("Failed to read input DEM array.")
             return {}
-        try:
-            out_band.WriteArray(arr)
-        except Exception as e:
-            feedback.reportError(f"Failed to WriteArray for filled raster: {e}; arr.shape={arr.shape}; expected (height,width)=({height},{width})")
-            out_raster = None
-            return {}
-        out_band.SetNoDataValue(no_data_value)
-        out_band.FlushCache()
-        out_band.SetNoDataValue(no_data_value)
-        out_band.FlushCache()
-        # Readback verification: open written file and compare
-        try:
-            ds_check = gdal.Open(output_raster_path)
-            if ds_check is not None:
-                band_check = ds_check.GetRasterBand(1)
-                arr_check = band_check.ReadAsArray()
-                gt_check = ds_check.GetGeoTransform()
-                feedback.pushInfo(f"Written raster readback shape: {arr_check.shape}, dtype: {arr_check.dtype}")
-                feedback.pushInfo(f"Written raster geotransform: {gt_check}")
-                # sample corners
-                h_ck, w_ck = arr_check.shape
-                sample_vals = {
-                    'top_left': float(arr_check[0, 0]),
-                    'top_right': float(arr_check[0, w_ck - 1]),
-                    'bottom_left': float(arr_check[h_ck - 1, 0]),
-                    'bottom_right': float(arr_check[h_ck - 1, w_ck - 1])
-                }
-                feedback.pushInfo(f"Written raster corner samples: {sample_vals}")
-            else:
-                feedback.pushInfo("Could not open written filled raster for readback verification")
-        except Exception as e:
-            feedback.pushInfo(f"Exception during filled raster readback verification: {e}")
-        finally:
-            out_raster = None
+        
+        # Write filled raster
+        output_raster_path = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fromNumpy(filled_dem, width,height,extent,input_raster.crs(),feedback)
         feedback.pushInfo(f"Filled raster written to: {output_raster_path}")
-        try:
-            feedback.setProgress(70)
-        except Exception:
-            pass
-
-        # endregion
-
+            
         # region Process: Compute and write pond depth rasters
         # Calculate pond depth raster (filled_dem - dem)
         pond_depth = filled_dem - dem       
-        # Ensure output directory exists
-        pond_depth_dir = os.path.dirname(output_pond_depth_raster_path)
-        if pond_depth_dir and not os.path.exists(pond_depth_dir):
-            os.makedirs(pond_depth_dir)
-        # Write pond depth raster using GDAL
-        pond_driver = gdal.GetDriverByName('GTiff')
-        pond_raster = pond_driver.Create(output_pond_depth_raster_path, width, height, 1, gdal.GDT_Float32)
-        pond_raster.SetGeoTransform(geotransform)
-        pond_raster.SetProjection(input_raster.crs().toWkt())
-        pond_band = pond_raster.GetRasterBand(1)
-        try:
-            pond_arr = np.ascontiguousarray(pond_depth.astype(np.float32))
-        except Exception as e:
-            feedback.reportError(f"Failed to prepare pond_depth array for writing: {e}")
-            pond_raster = None
-            return {}
-        feedback.pushInfo(f"pond_depth array shape: {pond_arr.shape}, dtype: {pond_arr.dtype}")
-        if pond_arr.shape != (height, width):
-            feedback.reportError(f"pond_depth shape {pond_arr.shape} does not match expected (height,width)=({height},{width}). Aborting write.")
-            pond_raster = None
-            return {}
-        try:
-            pond_band.WriteArray(pond_arr)
-        except Exception as e:
-            feedback.reportError(f"Failed to WriteArray for pond depth raster: {e}; arr.shape={pond_arr.shape}; expected (height,width)=({height},{width})")
-            pond_raster = None
-            return {}
-        pond_band.SetNoDataValue(no_data_value)
-        pond_band.FlushCache()
-        pond_band.SetNoDataValue(no_data_value)
-        pond_band.FlushCache()
-        # Readback verification for pond depth raster
-        try:
-            ds_pcheck = gdal.Open(output_pond_depth_raster_path)
-            if ds_pcheck is not None:
-                pb = ds_pcheck.GetRasterBand(1)
-                parr_check = pb.ReadAsArray()
-                gt_pcheck = ds_pcheck.GetGeoTransform()
-                feedback.pushInfo(f"Pond raster readback shape: {parr_check.shape}, dtype: {parr_check.dtype}")
-                feedback.pushInfo(f"Pond raster geotransform: {gt_pcheck}")
-            else:
-                feedback.pushInfo("Could not open written pond depth raster for readback verification")
-        except Exception as e:
-            feedback.pushInfo(f"Exception during pond depth raster readback verification: {e}")
-        finally:
-            pond_raster = None
-        feedback.pushInfo(f"Pond depth raster written to: {output_pond_depth_raster_path}")
+
+        output_pond_depth_raster_path = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fromNumpy(pond_depth, width,height,extent,input_raster.crs(),feedback)
+
         try:
             feedback.setProgress(80)
         except Exception:
             pass
-
+        
         # Calculate valid pond depth raster (where depth > min_depth)
         min_depth = self.parameterAsDouble(parameters, "MIN_DEPTH", context)
-        pond_depth_valid = pond_depth > min_depth
-
-        # Write valid pond depth raster (where depth > min_depth)
-        pond_depth_valid_dir = os.path.dirname(output_pond_depth_raster_valid_path)
-        if pond_depth_valid_dir and not os.path.exists(pond_depth_valid_dir):
-            os.makedirs(pond_depth_valid_dir)
+        pond_depth_valid = np.where(pond_depth > min_depth, pond_depth > min_depth, no_data_value).astype(np.float32)
+        output_pond_depth_raster_valid_path = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fromNumpy(pond_depth_valid, width,height,extent,input_raster.crs(),feedback)   
         
-        # pond_depth_valid = np.where(pond_depth > min_depth, pond_depth, no_data_value).astype(np.float32)
-        pond_raster_valid = pond_driver.Create(output_pond_depth_raster_valid_path, width, height, 1, gdal.GDT_Float32)
-        pond_raster_valid.SetGeoTransform(geotransform)
-        pond_raster_valid.SetProjection(input_raster.crs().toWkt())
-        pond_band_valid = pond_raster_valid.GetRasterBand(1)
-        # pond_depth_valid is boolean; write a float raster with nodata and a separate mask if needed
-        try:
-            pond_valid_float = np.where(pond_depth > min_depth, pond_depth_valid, no_data_value).astype(np.float32)
-            pond_valid_arr = np.ascontiguousarray(pond_valid_float)
-        except Exception as e:
-            feedback.reportError(f"Failed to prepare valid pond depth array for writing: {e}")
-            pond_raster_valid = None
-            return {}
-        feedback.pushInfo(f"pond_valid_arr shape: {pond_valid_arr.shape}, dtype: {pond_valid_arr.dtype}")
-        if pond_valid_arr.shape != (height, width):
-            feedback.reportError(f"pond_valid_arr shape {pond_valid_arr.shape} does not match expected (height,width)=({height},{width}). Aborting write.")
-            pond_raster_valid = None
-            return {}
-        try:
-            pond_band_valid.WriteArray(pond_valid_arr)
-        except Exception as e:
-            feedback.reportError(f"Failed to WriteArray for valid pond depth raster: {e}; arr.shape={pond_valid_arr.shape}; expected (height,width)=({height},{width})")
-            pond_raster_valid = None
-            return {}
-        pond_band_valid.SetNoDataValue(no_data_value)
-        pond_band_valid.FlushCache()
-        pond_band_valid.SetNoDataValue(no_data_value)
-        pond_band_valid.FlushCache()
-        # Readback verification for valid pond raster
-        try:
-            ds_vcheck = gdal.Open(output_pond_depth_raster_valid_path)
-            if ds_vcheck is not None:
-                vb = ds_vcheck.GetRasterBand(1)
-                varr_check = vb.ReadAsArray()
-                gt_vcheck = ds_vcheck.GetGeoTransform()
-                feedback.pushInfo(f"Valid pond raster readback shape: {varr_check.shape}, dtype: {varr_check.dtype}")
-                feedback.pushInfo(f"Valid pond raster geotransform: {gt_vcheck}")
-            else:
-                feedback.pushInfo("Could not open written valid pond raster for readback verification")
-        except Exception as e:
-            feedback.pushInfo(f"Exception during valid pond raster readback verification: {e}")
-        finally:
-            pond_raster_valid = None
-        feedback.pushInfo(f"Valid pond depth raster written to: {output_pond_depth_raster_valid_path}")
         try:
             feedback.setProgress(85)
         except Exception:
             pass
 
         # endregion
-
-        # region Process: Polygonize & Filter pond outlines
-        temp_poly_output_path = os.path.join(tempfile.gettempdir(), f"pond_outlines_polygonize_{uuid.uuid4().hex}.gpkg")
+        
         # Polygonize the valid pond depth raster to vector shapes
-        polygonize_params = {
+        pond_result = processing.run('gdal:polygonize',{
             'INPUT': output_pond_depth_raster_valid_path,
             'BAND': 1,
             'FIELD': 'IsPond',
             'EIGHT_CONNECTEDNESS': False,
-            'OUTPUT': temp_poly_output_path
-        }
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }, context=context, feedback=feedback)['OUTPUT']
         
-        processing.run('gdal:polygonize', polygonize_params, context=context, feedback=feedback)
-        feedback.pushInfo(f"Pond outlines vector layer written to: {temp_poly_output_path}")
+        # Create a QgsVectorLayer from the output path
+        pond_layer = QgsVectorLayer(pond_result, "PondOutlines", "ogr")
         try:
             feedback.setProgress(90)
         except Exception:
@@ -601,9 +312,8 @@ class FindRasterPonds(ctdqAlgoRun):
         try:
             min_area = float(self.parameterAsDouble(parameters, "MIN_AREA", context))
         except Exception:
-            min_area = 500.0
+            min_area = 500.0        
         
-        pond_layer = QgsVectorLayer(temp_poly_output_path, "PondOutlines", "ogr")
         if pond_layer.isValid():
             pond_layer.startEditing()
             ids_to_delete = []
@@ -622,81 +332,71 @@ class FindRasterPonds(ctdqAlgoRun):
             pond_layer.deleteFeatures(ids_to_delete)
             pond_layer.commitChanges()
         else:
-            feedback.reportError(f"Could not load pond outlines layer for filtering: {temp_poly_output_path}")
+            feedback.reportError(f"Could not load pond outlines layer for filtering: {output_pond_depth_raster_valid_path}")
 
         # Add Pond ID field
-        
+        # Add PONDid field to the filtered pond layer
         try:
-            pond_layer_area = QgsVectorLayer(temp_poly_output_path, "PondOutlinesAreaFilter", "ogr")
-
-            # Add a new field "PONDid" to assign unique IDs to each pond
-            pond_layer_area.startEditing()
-            if "PONDid" not in [field.name() for field in pond_layer_area.fields()]:
+            pond_layer.startEditing()
+            if "PONDid" not in [field.name() for field in pond_layer.fields()]:
                 # Use modern QgsField constructor with proper parameter naming
                 pondid_field = QgsField(name="PONDid", type=QMetaType.QString)
-                pond_layer_area.dataProvider().addAttributes([pondid_field])
-                pond_layer_area.updateFields()
+                pond_layer.dataProvider().addAttributes([pondid_field])
+                pond_layer.updateFields()
 
             # Assign unique IDs (P1, P2, P3, ...) to each pond
-            for i, feature in enumerate(pond_layer_area.getFeatures(), start=1):
+            for i, feature in enumerate(pond_layer.getFeatures(), start=1):
                 feature.setAttribute("PONDid", f"P{i}")
-                pond_layer_area.updateFeature(feature)
+                pond_layer.updateFeature(feature)
 
-            pond_layer_area.commitChanges()
+            pond_layer.commitChanges()
             feedback.pushInfo("Assigned unique IDs (PONDid) to each pond.")
         except Exception as e:
-            feedback.pushWarning(f"Exception during MIN_AREA filtering: {e}")
+            feedback.pushWarning(f"Exception during PONDid assignment: {e}")
 
         # Optionally smooth the pond outlines using QGIS smoothgeometry algorithm
-        temp_poly_output_path  # default to unsmoothed
         try:
             do_gen = self.parameterAsBoolean(parameters, "GENERALIZE_OUTLINES", context)
         except Exception:
             do_gen = True
         if do_gen:
-            try:
-                import tempfile
-                gen_out = os.path.join(tempfile.gettempdir(), f"pond_outlines_gen_{uuid.uuid4().hex}.gpkg")
-                gen_params = {
-                    'INPUT': temp_poly_output_path,
+            try:           
+                gen_result_output_path = os.path.join(tempfile.gettempdir(), f"pond_smooth_{uuid.uuid4().hex}.gpkg")     
+                gen_result = processing.run('qgis:smoothgeometry',{
+                    'INPUT': pond_result,
                     'ITERATIONS': 1,
                     'MAX_ANGLE': 180,
                     'OFFSET': 0.5,
-                    'OUTPUT': gen_out
-                }
-                processing.run('qgis:smoothgeometry', gen_params, context=context, feedback=feedback)
-                # replace the outline path with the smoothed version for downstream steps
-                if os.path.exists(gen_out):
-                    feedback.pushInfo(f"Smoothed pond outlines written to: {gen_out}")
-                    temp_poly_output_path = gen_out
+                    'OUTPUT': gen_result_output_path
+                }, context=context, feedback=feedback)['OUTPUT']
+                pond_result = gen_result_output_path
+                feedback.pushInfo("Generalized (smoothed) pond outlines.")
             except Exception as e:
                 feedback.pushInfo(f"Smooth step failed or not available: {e}")
+            
 
     # endregion
 
     # region Process: Zonal statistics and field calculations
     # Use QGIS Processing algorithm for zonal statistics instead of QgsZonalStatistics
-        zonal_params = {
+        zonal_stats = processing.run('qgis:zonalstatistics',{
             'INPUT_RASTER': output_raster_path,
             'RASTER_BAND': 1,
-            'INPUT_VECTOR': temp_poly_output_path,
+            'INPUT_VECTOR': pond_result,
             'COLUMN_PREFIX': 'tP',
-            'STATISTICS': [6]  # 6 = Maximum
-        }
-        
-        processing.run('qgis:zonalstatistics', zonal_params, context=context, feedback=feedback)
+            'STATISTICS': [6]  # 6 = Maximum            
+        }, context=context, feedback=feedback)
         feedback.pushInfo("Added Pond zonal statistics to pond outlines layer using qgis:zonalstatistics.")
 
         # Also compute zonal statistics for pond depth raster: sum, count, mean, min, max
-        depth_zonal_params = {
+        depth_zonal_stats = processing.run('qgis:zonalstatistics',{
             'INPUT_RASTER': output_pond_depth_raster_path,
             'RASTER_BAND': 1,
-            'INPUT_VECTOR': temp_poly_output_path,
+            'INPUT_VECTOR': pond_result,
             'COLUMN_PREFIX': 'tD',
             # qgis:zonalstatistics STATISTICS codes: 1=sum,2=mean,3=median,6=max
-            'STATISTICS': [1, 2, 3, 6]
-        }
-        processing.run('qgis:zonalstatistics', depth_zonal_params, context=context, feedback=feedback)
+            'STATISTICS': [1, 2, 3, 6]            
+        }, context=context, feedback=feedback)
         feedback.pushInfo("Added Pond Depth zonal statistics (sum,count,mean,min,max) to pond outlines layer using qgis:zonalstatistics.")
         try:
             feedback.setProgress(95)
@@ -706,9 +406,9 @@ class FindRasterPonds(ctdqAlgoRun):
         # Compute PONDRLmin = PONDRLmax - DEPTH_max and PONDvolume = DEPTH_sum * pixel_area
         try:
             # Load the layer after zonal statistics have been added
-            pond_layer_upd = QgsVectorLayer(temp_poly_output_path, "PondOutlinesForStats", "ogr")
+            pond_layer_upd = QgsVectorLayer(pond_result, "PondOutlinesForStats", "ogr")
             if not pond_layer_upd.isValid():
-                feedback.reportError(f"Could not open pond outlines layer for stat post-processing: {temp_poly_output_path}")
+                feedback.reportError(f"Could not open pond outlines layer for stat post-processing: {gen_result}")
             else:
                 # Debug: List all fields to see what was actually created
                 all_fields = [f.name() for f in pond_layer_upd.fields()]
