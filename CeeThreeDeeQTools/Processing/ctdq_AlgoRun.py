@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 from json import load
 
-from qgis.core import QgsVectorLayer, QgsProcessingException, QgsFillSymbol, QgsTextFormat, QgsTextBufferSettings
+from qgis.core import QgsVectorLayer, QgsProcessingException, QgsFillSymbol, QgsTextFormat, QgsTextBufferSettings,QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer
 
 from .ctdq_AlgoBase import ctdqAlgoBase
 from .ctdq_AlgoUtils import (
@@ -73,7 +73,8 @@ class ctdqAlgoRun(ctdqAlgoBase):
                                 layer_path: str, 
                                 display_name,
                                 context, 
-                                color_ramp_name: str = None, 
+                                color_ramp_graduated: QgsGraduatedSymbolRenderer = None,
+                                color_ramp_catergorised: QgsCategorizedSymbolRenderer = None,
                                 color_ramp_field: str = None, 
                                 fill_symbol_definition: QgsFillSymbol = None,
                                 label_field_expression: str = None,
@@ -90,7 +91,7 @@ class ctdqAlgoRun(ctdqAlgoBase):
         
         if context.willLoadLayerOnCompletion(layer_path):
             self.styler_dict[layer_path] = LayerPostProcessor(
-                display_name, color_ramp_name, color_ramp_field, fill_symbol_definition,
+                display_name, color_ramp_graduated, color_ramp_catergorised, color_ramp_field, fill_symbol_definition,
                 label_field_expression, label_text_format, label_buffer_format
             )
             context.layerToLoadOnCompletionDetails(layer_path).setPostProcessor(

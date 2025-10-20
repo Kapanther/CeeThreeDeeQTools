@@ -643,6 +643,7 @@ class FindRasterPonds(ctdqAlgoRun):
                 context,
                 None,
                 None,
+                None,
                 self.FILL_SYMBOL,
                 self.LABEL_EXPRESSION,
                 self.LABEL_TEXT_FORMAT,

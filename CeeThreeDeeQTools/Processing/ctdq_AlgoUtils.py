@@ -9,13 +9,17 @@ from qgis.core import (
     QgsTextFormat,
     QgsProcessingLayerPostProcessorInterface,
     QgsProcessing,
+    QgsRendererRange,
     QgsTextBufferSettings,
     QgsLayerTreeGroup,
     QgsLayerTree,
     QgsGraduatedSymbolRenderer,  # Added import
     QgsStyle,  # Added import for QgsStyle
     QgsPalLayerSettings,  # Added import for labeling
-    QgsVectorLayerSimpleLabeling
+    QgsVectorLayerSimpleLabeling,
+    QgsCategorizedSymbolRenderer,  # Added import for categorized rendering
+    QgsRendererCategory,  # Added import for renderer categories
+    QgsSymbol,  # Added import for symbols
 )
 
 from qgis.PyQt.QtGui import QColor
@@ -29,7 +33,8 @@ import processing
 
 class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
     def __init__(self, display_name, 
-                 color_ramp_name: str = None, 
+                 color_ramp_graduated: QgsGraduatedSymbolRenderer = None,
+                 color_ramp_catergorised: QgsCategorizedSymbolRenderer = None,
                  color_ramp_field: str = None, 
                  fill_symbol_definition: QgsFillSymbol = None,
                  label_field_expression: str = None,
@@ -38,7 +43,8 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                  ):
         super().__init__()
         self.display_name = display_name
-        self.color_ramp = color_ramp_name  # expects a string
+        self.colour_ramp_graduated = color_ramp_graduated # expects a QgsGraduatedSymbolRenderer
+        self.colour_ramp_catergorised = color_ramp_catergorised # expects a QgsCategorizedSymbolRenderer
         self.color_ramp_field = color_ramp_field # expects a string
         self.fill_symbol_definition = fill_symbol_definition # expects a QgsFillSymbol
         self.label_field_expression = label_field_expression # expects a string
@@ -78,71 +84,42 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                     labeling = QgsVectorLayerSimpleLabeling(label_settings)
                     layer.setLabeling(labeling)
                     layer.setLabelsEnabled(True)                    
-                    layer.triggerRepaint()
+                    layer.triggerRepaint()                    
                     
-                    # attempt to refresh legend/symbology view (best-effort)
-                    try:
-                        iface.layerTreeView().refreshLayerSymbology(layer.id())
-                        QCoreApplication.processEvents()
-                    except Exception:
-                        try:
-                            # older/newer API differences — ignore failures
-                            iface.layerTreeView().refreshLayerSymbology()
-                        except Exception:
-                            pass
                 except Exception as e_l:
                     feedback.pushInfo(f"Styler: failed to apply labeling: {e_l}")
 
+            # Applty categorized renderer
+            if self.colour_ramp_catergorised and self.color_ramp_field:                
+                feedback.pushInfo(f"Styler: applying categorized renderer on field {self.color_ramp_field}")
+                try:
+                    # Use the provided categorized renderer directly
+                    layer.setRenderer(self.colour_ramp_catergorised)
+                    feedback.pushInfo("Styler: categorized renderer applied.")
+                except Exception as e_r:
+                    feedback.pushInfo(f"Styler: failed to create/apply categorized renderer: {e_r}")
+
             # Apply graduated renderer
-            if self.color_ramp and self.color_ramp_field:                
+            if self.colour_ramp_graduated and self.color_ramp_field:                
                 feedback.pushInfo(f"Styler: applying graduated renderer on field {self.color_ramp_field}")
                 try:
-                    # Prefer the convenience factory if present (newer QGIS).
-                    renderer = None
-                    create_fn = getattr(QgsGraduatedSymbolRenderer, "createRenderer", None)
-                    if callable(create_fn):
-                        try:
-                            renderer = create_fn(
-                                layer,
-                                self.color_ramp_field,
-                                QgsGraduatedSymbolRenderer.Quantile,
-                                5,
-                            )
-                        except Exception as e_cr:
-                            # Log the exception and the signature to diagnose API mismatch
-                            feedback.pushInfo(f"Styler: createRenderer raised: {e_cr}")
-                            try:
-                                sig = inspect.signature(create_fn)
-                                feedback.pushInfo(f"Styler: createRenderer signature: {sig}")
-                            except Exception:
-                                feedback.pushInfo("Styler: could not inspect createRenderer signature.")
-                            renderer = None
-                    else:
-                        feedback.pushInfo("Styler: QgsGraduatedSymbolRenderer.createRenderer not available on this build.")
-
-                    # If factory failed or not available, fall back to creating renderer and calling updateClasses()
-                    if renderer is None:
-                        renderer = QgsGraduatedSymbolRenderer()
-                        renderer.setClassAttribute(self.color_ramp_field)
-                        try:
-                            # updateClasses is deprecated in some builds but still available as a fallback
-                            renderer.updateClasses(layer, QgsGraduatedSymbolRenderer.Quantile, 5)
-                        except Exception as e_uc:
-                            feedback.pushInfo(f"Styler: updateClasses fallback failed: {e_uc}")
-
-                    # Apply color ramp if available
-                    try:
-                        color_ramp_obj = QgsStyle().defaultStyle().colorRamp(self.color_ramp)
-                        if color_ramp_obj and renderer and hasattr(renderer, "updateColorRamp"):
-                            renderer.updateColorRamp(color_ramp_obj)
-                    except Exception as e_cr:
-                        feedback.pushInfo(f"Styler: color ramp application failed: {e_cr}")
-
-                    if renderer:
-                        layer.setRenderer(renderer)
-                        feedback.pushInfo("Styler: graduated renderer applied.")
+                    # Use the provided graduated renderer directly
+                    layer.setRenderer(self.colour_ramp_graduated)
+                    feedback.pushInfo("Styler: graduated renderer applied.")
                 except Exception as e_r:
-                    feedback.pushInfo(f"Styler: failed to create/apply renderer: {e_r}")
+                    feedback.pushInfo(f"Styler: failed to create/apply graduated renderer: {e_r}")
+
+
+            # finally attempt to refresh legend/symbology view (best-effort)
+            try:
+                iface.layerTreeView().refreshLayerSymbology(layer.id())
+                QCoreApplication.processEvents()
+            except Exception:
+                try:
+                    # older/newer API differences — ignore failures
+                    iface.layerTreeView().refreshLayerSymbology()
+                except Exception:
+                    pass
 
 
 def create_group(name: str, root: QgsLayerTree) -> None:

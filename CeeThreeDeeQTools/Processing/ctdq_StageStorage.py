@@ -501,12 +501,34 @@ class CalculateStageStoragePond(ctdqAlgoRun):
         display_name = "Stage Storage Slices"
         # entity name can be the same as parameter key, or a short id for the output
         try:
+            # Create graduated symbol renderer for streams based on Shreve order
+            grad_symbol_renderer = QgsGraduatedSymbolRenderer()
+            grad_symbol_renderer.setClassAttribute(self.COLOR_RAMP_FIELD)
+            
+            # Try to set up the renderer with classes
+            try:
+                temp_layer = QgsVectorLayer(output_layer, "temp", "ogr") #TODO this is not working
+                grad_symbol_renderer.updateClasses(temp_layer, QgsGraduatedSymbolRenderer.Quantile, 5)
+            except Exception:
+                # Fallback if updateClasses fails
+                feedback.pushInfo("Could not set up graduated classes for stage storage layer.")
+                pass
+            
+            # Apply Viridis color ramp
+            try:
+                color_ramp_ = QgsStyle().defaultStyle().colorRamp(self.COLOR_RAMP_NAME)
+                if color_ramp_ and hasattr(grad_symbol_renderer, "updateColorRamp"):
+                    grad_symbol_renderer.updateColorRamp(color_ramp_)
+            except Exception as e:
+                feedback.pushInfo(f"Could not apply stage_Storage color ramp: {e}")
+
             self.handle_post_processing(
                 "OUTPUT_STAGE_STORAGE",
                 output_layer,
                 display_name,
                 context,
-                self.COLOR_RAMP_NAME,
+                grad_symbol_renderer,
+                None,
                 self.COLOR_RAMP_FIELD,
             )
             feedback.pushInfo("Registered output layer with inherited post-processing handler.")
