@@ -10,6 +10,7 @@ from qgis.core import (
     QgsProcessingLayerPostProcessorInterface,
     QgsProcessing,
     QgsRendererRange,
+    QgsClassificationQuantile,
     QgsTextBufferSettings,
     QgsLayerTreeGroup,
     QgsLayerTree,
@@ -104,6 +105,10 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                 feedback.pushInfo(f"Styler: applying graduated renderer on field {self.color_ramp_field}")
                 try:
                     # Use the provided graduated renderer directly
+                    class_method = QgsClassificationQuantile()
+                    class_method.setLabelPrecision(1)
+                    self.colour_ramp_graduated.setClassificationMethod(class_method)
+                    self.colour_ramp_graduated.updateClasses(layer, 5)
                     layer.setRenderer(self.colour_ramp_graduated)
                     feedback.pushInfo("Styler: graduated renderer applied.")
                 except Exception as e_r:

@@ -18,26 +18,17 @@ from qgis.core import (
     QgsProcessingContext,
     QgsProcessingFeedback,
     QgsProcessingMultiStepFeedback,
-    QgsProject,
     QgsVectorLayer,
-    QgsFields,
     QgsField,
-    QgsFeature,
-    QgsGeometry,
     QgsWkbTypes,
-    QgsProcessingParameterFileDestination,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterRasterLayer,  # Import QgsProcessingParameterRasterLayer for raster input
     QgsProcessingParameterNumber,  # Import QgsProcessingParameterNumber for numeric input
     QgsProcessingException,
+    QgsClassificationQuantile,
     QgsMessageLog,
     QgsCategorizedSymbolRenderer,
-    QgsVectorFileWriter,
-    QgsProcessingOutputLayerDefinition,
-    QgsCoordinateTransform,
-    QgsCoordinateTransformContext,
-    QgsProcessingUtils,
-    QgsRasterLayer,  # Import QgsRasterLayer for raster support
+    QgsClassificationMethod,
     QgsFeatureSink,  # Import QgsFeatureSink for feature sink operations
     QgsSpatialIndex,  # Import QgsSpatialIndex for spatial indexing
     QgsFillSymbol,  # Import for creating fill symbols
@@ -45,6 +36,10 @@ from qgis.core import (
     QgsRendererCategory,  # Import for renderer categories
     QgsSymbol,  # Import for symbols
     QgsStyle,  # Import for color ramps
+    QgsPalLayerSettings,  # Import for labeling
+    QgsVectorLayerSimpleLabeling,  # Import for simple labeling
+    QgsTextFormat,  # Import for text formatting
+    QgsTextBufferSettings,  # Import for text buffer
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
@@ -68,6 +63,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
     SMOOTH_OFFSET = "SMOOTH_OFFSET"
     OUTPUT_CATCHMENTS = "OUTPUT_CATCHMENTS"
     OUTPUT_STREAMS = "OUTPUT_STREAMS"
+    OUTPUT_NETWORKS = "OUTPUT_NETWORKS"
 
     def name(self):
         return self.TOOL_NAME
@@ -152,6 +148,16 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             )
         )
 
+        self.addParameter(
+            QgsProcessingParameterVectorDestination(
+                self.OUTPUT_NETWORKS,
+                "Output Networks Layer",
+                type=QgsProcessing.TypeVectorPolygon,
+                createByDefault=True,
+                defaultValue=None
+            )
+        )
+
     def processAlgorithm(
         self,
         parameters: dict[str, Any],
@@ -171,7 +177,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
 
             # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
             # overall progress through the model
-            feedback = QgsProcessingMultiStepFeedback(6, model_feedback)
+            feedback = QgsProcessingMultiStepFeedback(7, model_feedback)
 
             # generate a fill direction raster using the DEM
             
@@ -244,6 +250,13 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
             
+            # Dissolve catchments by network field to create networks
+            networks = processing.run("native:dissolve", {
+                'INPUT': joined_catchments,
+                'FIELD': ['network'],
+                'OUTPUT': 'memory:'
+            }, context=context, feedback=feedback)['OUTPUT']
+
             stream_sink,stream_dest_id = self.parameterAsSink(parameters,self.OUTPUT_STREAMS,context,
                                                               ordered_streams.fields(),QgsWkbTypes.LineString,input_dem.crs())
             if stream_sink is None:
@@ -254,6 +267,12 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                                                                       joined_catchments.fields(), QgsWkbTypes.Polygon, input_dem.crs())
             if catchments_sink is None:
                 raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT_CATCHMENTS))
+
+            # Create networks sink
+            networks_sink, networks_dest_id = self.parameterAsSink(parameters, self.OUTPUT_NETWORKS, context,
+                                                                  networks.fields(), QgsWkbTypes.Polygon, input_dem.crs())
+            if networks_sink is None:
+                raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT_NETWORKS))
 
             feature_count = ordered_streams.featureCount()
             for current, f in enumerate(ordered_streams.getFeatures()):
@@ -270,27 +289,29 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 catchments_sink.addFeature(f, QgsFeatureSink.FastInsert)
                 feedback.setProgress(int((current + 1) / catchment_feature_count * 100))
 
+            # Add networks features to sink
+            networks_feature_count = networks.featureCount()
+            for current, f in enumerate(networks.getFeatures()):
+                if feedback.isCanceled():
+                    break
+                networks_sink.addFeature(f, QgsFeatureSink.FastInsert)
+                feedback.setProgress(int((current + 1) / networks_feature_count * 100))
+
             # Use inherited helper to register LayerPostProcessor for styling
             self.load_outputs = True
             display_name = "Stream Network"
             
             try:
+                
                 # Create graduated symbol renderer for streams based on Shreve order
                 streams_renderer = QgsGraduatedSymbolRenderer()
                 streams_renderer.setClassAttribute("Shreve")
-                
-                # Try to set up the renderer with classes
-                try:
-                    streams_renderer.updateClasses(ordered_streams, QgsGraduatedSymbolRenderer.Quantile, 5)
-                except Exception:
-                    # Fallback if updateClasses fails
-                    pass
-                
+            
                 # Apply Viridis color ramp
                 try:
-                    viridis_ramp = QgsStyle().defaultStyle().colorRamp("Viridis")
-                    if viridis_ramp and hasattr(streams_renderer, "updateColorRamp"):
-                        streams_renderer.updateColorRamp(viridis_ramp)
+                    color_ramp = QgsStyle().defaultStyle().colorRamp("Viridis")
+                    if color_ramp and hasattr(streams_renderer, "updateColorRamp"):
+                        streams_renderer.updateColorRamp(color_ramp)
                 except Exception as e:
                     feedback.pushInfo(f"Could not apply Viridis color ramp: {e}")
                 
@@ -350,10 +371,63 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             except Exception as e:
                 feedback.pushWarning(f"Could not apply styling to catchments: {e}")
 
+            # Style networks with blue outline only and labels
+            networks_display_name = "Networks"
+            try:
+                # Create a transparent fill symbol with blue outline
+                networks_symbol = QgsFillSymbol.createSimple({
+                    'color': '255,255,255,0',  # Transparent fill
+                    'outline_color': '0,0,255,255',  # Blue outline
+                    'outline_width': '0.6',
+                    'outline_style': 'solid'
+                })
+
+                # Create simple renderer for networks
+                from qgis.core import QgsSingleSymbolRenderer
+                networks_renderer = QgsSingleSymbolRenderer(networks_symbol)
+
+                # Create label settings
+                label_settings = QgsPalLayerSettings()
+                label_settings.fieldName = 'network'
+                label_settings.enabled = True
+                
+                # Set up text format
+                text_format = QgsTextFormat()
+                text_format.setSize(10)
+                text_format.setColor(QColor(0, 0, 0))  # Black text
+                
+                # Set up text buffer
+                buffer_settings = QgsTextBufferSettings()
+                buffer_settings.setEnabled(True)
+                buffer_settings.setSize(1.5)
+                buffer_settings.setColor(QColor(255, 255, 255))  # White buffer
+                text_format.setBuffer(buffer_settings)
+                
+                label_settings.setFormat(text_format)
+                
+                # Create labeling
+                labeling = QgsVectorLayerSimpleLabeling(label_settings)
+
+                self.handle_post_processing(
+                    "OUTPUT_NETWORKS",
+                    networks_dest_id,
+                    networks_display_name,
+                    context,
+                    None,  # no graduated renderer
+                    None,  # no categorized renderer, using single symbol
+                    None,  # no color ramp field
+                    networks_renderer,  # single symbol renderer
+                    labeling  # add labeling
+                )
+                feedback.pushInfo("Registered networks with blue outline styling and labels.")
+            except Exception as e:
+                feedback.pushWarning(f"Could not apply styling to networks: {e}")
+
             # Return the output paths
             return {
                 self.OUTPUT_STREAMS: stream_dest_id,
-                self.OUTPUT_CATCHMENTS: catchments_dest_id
+                self.OUTPUT_CATCHMENTS: catchments_dest_id,
+                self.OUTPUT_NETWORKS: networks_dest_id
             }
         except Exception as e:
             raise QgsProcessingException(f"Error in {self.TOOL_NAME}: {e}")

@@ -21,6 +21,7 @@ from qgis.core import (
     QgsProcessingAlgorithm,
     QgsProcessingContext,
     QgsProcessingFeedback,
+    QgsClassificationQuantile,
     QgsProject,
     QgsVectorLayer,
     QgsProcessingFeatureSourceDefinition,
@@ -32,12 +33,14 @@ from qgis.core import (
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterRasterLayer,
     QgsProcessingException,
+    QgsClassificationMethod,
     QgsVectorFileWriter,
     QgsProcessingParameterField,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSource,  # Import QgsProcessingParameterFeatureSource for vector layer input
     QgsGraduatedSymbolRenderer,  # Import QgsGraduatedSymbolRenderer for graduated styling
     QgsStyle,  # Import QgsStyle for color ramp
+    QgsFillSymbol,
     QgsFeatureRequest,  # Import QgsFeatureRequest for materialize
     QgsProcessingOutputLayerDefinition,  # import for registering output layer details
 )
@@ -501,26 +504,12 @@ class CalculateStageStoragePond(ctdqAlgoRun):
         display_name = "Stage Storage Slices"
         # entity name can be the same as parameter key, or a short id for the output
         try:
-            # Create graduated symbol renderer for streams based on Shreve order
+            # Create graduated symbol renderer using modern approach
             grad_symbol_renderer = QgsGraduatedSymbolRenderer()
             grad_symbol_renderer.setClassAttribute(self.COLOR_RAMP_FIELD)
-            
-            # Try to set up the renderer with classes
-            try:
-                temp_layer = QgsVectorLayer(output_layer, "temp", "ogr") #TODO this is not working
-                grad_symbol_renderer.updateClasses(temp_layer, QgsGraduatedSymbolRenderer.Quantile, 5)
-            except Exception:
-                # Fallback if updateClasses fails
-                feedback.pushInfo("Could not set up graduated classes for stage storage layer.")
-                pass
-            
-            # Apply Viridis color ramp
-            try:
-                color_ramp_ = QgsStyle().defaultStyle().colorRamp(self.COLOR_RAMP_NAME)
-                if color_ramp_ and hasattr(grad_symbol_renderer, "updateColorRamp"):
-                    grad_symbol_renderer.updateColorRamp(color_ramp_)
-            except Exception as e:
-                feedback.pushInfo(f"Could not apply stage_Storage color ramp: {e}")
+            color_ramp = QgsStyle().defaultStyle().colorRamp(self.COLOR_RAMP_NAME)
+            if color_ramp:            
+                grad_symbol_renderer.updateColorRamp(color_ramp)
 
             self.handle_post_processing(
                 "OUTPUT_STAGE_STORAGE",

@@ -37,7 +37,7 @@ from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
 from .ctdq_support import ctdprocessing_settingsdefaults
-from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, GenerateCatchmentsMinArea, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams
+from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams
 
 import os
 import inspect
@@ -107,7 +107,6 @@ class CTDQProvider(QgsProcessingProvider):
                 self.iface.messageBar().pushCritical("Error", f"Error loading algorithm {alg_class.__name__}: {e}") 
         """
         self.addAlgorithm(ExportDataSourcesMap())
-        self.addAlgorithm(GenerateCatchmentsMinArea())
         self.addAlgorithm(CatchmentsAndStreams())
         self.addAlgorithm(ExportProjectLayerStyles())      
         self.addAlgorithm(FindRasterPonds())  

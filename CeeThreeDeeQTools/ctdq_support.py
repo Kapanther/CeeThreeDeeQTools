@@ -74,23 +74,6 @@ ctdprocessing_command_info = {
             f"<li>{ctdprocessing_settingshelp_text}</li>"
         )
     },
-    "GenerateCatchmentsMinArea": {
-        "disp": "Generate Catchments - Min Area",
-        "group": ctdgroup_info[2]["group"],
-        "group_id": ctdgroup_info[2]["group_id"],
-        "shortHelp": (
-            "This tool generates catchments from a flow accumulation raster clipped to a boundary, it utilises GRASS commands to acheive the processing."
-            "<h3>Parameters</h3>"
-            "<ul>"
-            f"<li>{fop}Input DEM:{fcc} A DEM to be processed.</li>"
-            f"<li>{fop}Input Boundary Polygon:{fcc} A boundary to clip the DEM to before processing, leave blank to use the full extent.</li>"
-            f"<li>{fop}Output Folder:{fcc} The output location for the individual raster and vector files created by the process.</li>"
-            "</ul>"
-            "<h3>Processing Settings</h3>"
-            "<ul>"
-            f"<li>{ctdprocessing_settingshelp_text}</li>"
-        )
-    },
     "FindRasterPonds": {
         "disp": "Find Raster Ponds",
         "group": ctdgroup_info[2]["group"],
@@ -133,7 +116,7 @@ ctdprocessing_command_info = {
         )
     },
     "CatchmentsAndStreams": {
-        "disp": "Generate Catchments and Streams (WIP)",
+        "disp": "Generate Catchments and Streams",
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
