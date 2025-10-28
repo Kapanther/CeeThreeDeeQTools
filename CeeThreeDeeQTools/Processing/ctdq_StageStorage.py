@@ -47,6 +47,7 @@ from qgis.core import (
 from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QCoreApplication, QMetaType
 from ..ctdq_support import ctdprocessing_command_info, ctdprocessing_settingsdefaults, CTDQSupport
+from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the symbology class (use ctdq_AlgoSymbology.py)
 from .ctdq_AlgoRun import ctdqAlgoRun  # Import the missing base class
 import traceback
 import processing  # Import processing for running algorithms
@@ -504,25 +505,23 @@ class CalculateStageStoragePond(ctdqAlgoRun):
         display_name = "Stage Storage Slices"
         # entity name can be the same as parameter key, or a short id for the output
         try:
-            # Create graduated symbol renderer using modern approach
-            grad_symbol_renderer = QgsGraduatedSymbolRenderer()
-            grad_symbol_renderer.setClassAttribute(self.COLOR_RAMP_FIELD)
-            color_ramp = QgsStyle().defaultStyle().colorRamp(self.COLOR_RAMP_NAME)
-            if color_ramp:            
-                grad_symbol_renderer.updateColorRamp(color_ramp)
+            # Create symbology using PostVectorSymbology class
+            stage_storage_symbology = PostVectorSymbology().set_graduated_renderer(
+                self.COLOR_RAMP_FIELD, 
+                self.COLOR_RAMP_NAME
+            )
 
             self.handle_post_processing(
                 "OUTPUT_STAGE_STORAGE",
                 output_layer,
                 display_name,
                 context,
-                grad_symbol_renderer,
-                None,
-                self.COLOR_RAMP_FIELD,
+                stage_storage_symbology
             )
             feedback.pushInfo("Registered output layer with inherited post-processing handler.")
         except Exception as e_pp:
             feedback.pushWarning(f"Failed to register output with inherited post-processing handler: {e_pp}")
+            feedback.pushWarning(f"Traceback: {traceback.format_exc()}")
 
         # Deselect all features in the ponds layer
         ponds_layer.removeSelection()

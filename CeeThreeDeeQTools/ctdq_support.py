@@ -120,12 +120,17 @@ ctdprocessing_command_info = {
         "group": ctdgroup_info[2]["group"],
         "group_id": ctdgroup_info[2]["group_id"],
         "shortHelp": (
-            "Generates both catchments and stream vectors from a DEM. Streams also contain stream order (both Strahler and Shreve) and catchments are linked to streams."
+            "Generates both catchments and stream vectors from a DEM. Streams also contain stream order (both Strahler and Shreve) and catchments are linked to streams via the :NETWORK: attribute."
             "<h3>Parameters</h3>"
             "<ul>"
             f"<li>{fop}Input DEM:{fcc} A DEM to be processed.</li>"
-            f"<li>{fop}Output Catchments Layer:{fcc} The output polygon layer for the catchments.</li>"
+            f"<li>{fop}Flow Threshold:{fcc} The minimum number of upstream cells required to form a stream. Higher values result in fewer streams.</li>"
+            f"<li>{fop}Catchment Threshold:{fcc} The minimum area of catchments to be detected (default 10000 pixels).</li>"
+            f"<li>{fop}Smoothing Offset:{fcc} Offset distance for smoothing streams (default 0.5.</li>"
+            f"<li>{fop}Smoothing Iterations:{fcc} Number of smoothing iterations to apply to streams (default 5).</li>"            
             f"<li>{fop}Output Streams Layer:{fcc} The output line layer for the streams.</li>"
+            f"<li>{fop}Output Catchments Layer:{fcc} The output polygon layer for the catchments.</li>"
+            f"<li>{fop}Output Networks Layer:{fcc} The output polygon layer for each network area.</li>"
             "</ul>"
             "<h3>Processing Settings</h3>"
             "<ul>"

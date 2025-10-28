@@ -33,89 +33,46 @@ import processing
 
 
 class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
-    def __init__(self, display_name, 
-                 color_ramp_graduated: QgsGraduatedSymbolRenderer = None,
-                 color_ramp_catergorised: QgsCategorizedSymbolRenderer = None,
-                 color_ramp_field: str = None, 
-                 fill_symbol_definition: QgsFillSymbol = None,
-                 label_field_expression: str = None,
-                 label_text_format: QgsTextFormat = None,
-                 label_buffer_format: QgsTextBufferSettings = None
-                 ):
+    def __init__(self, display_name, symbology=None):
+        """
+        Initialize the LayerPostProcessor with a symbology object.
+        
+        Args:
+            display_name: The name to display for the layer
+            symbology: PostVectorSymbology or PostRasterSymbology object
+        """
         super().__init__()
         self.display_name = display_name
-        self.colour_ramp_graduated = color_ramp_graduated # expects a QgsGraduatedSymbolRenderer
-        self.colour_ramp_catergorised = color_ramp_catergorised # expects a QgsCategorizedSymbolRenderer
-        self.color_ramp_field = color_ramp_field # expects a string
-        self.fill_symbol_definition = fill_symbol_definition # expects a QgsFillSymbol
-        self.label_field_expression = label_field_expression # expects a string
-        self.label_text_format = label_text_format # expects a QgsTextFormat and also an expression to be defined
-        self.label_buffer_format = label_buffer_format # expects a QgsTextBufferSettings and also an expression to be defined and a text format        
+        self.symbology = symbology
 
     def postProcessLayer(self, layer, context, feedback):
+        """
+        Apply symbology and set display name for the layer during post-processing.
+        
+        Args:
+            layer: The QgsVectorLayer or QgsRasterLayer to process
+            context: The QgsProcessingContext for the algorithm
+            feedback: The QgsProcessingFeedback for reporting progress
+        """
         if layer.isValid():
             # Set the layer name
             layer.setName(self.display_name)
 
-            # Apply fill symbol if available
-            if self.fill_symbol_definition:
-                try:
-                    layer.renderer().setSymbol(self.fill_symbol_definition)
-                    layer.triggerRepaint()                                      
-                except Exception as e_fs:
-                    feedback.pushInfo(f"Styler: failed to apply fill symbol: {e_fs}")
+            if not self.symbology:
+                return
 
-            # Apply labeling if available
-            if self.label_field_expression:
-                feedback.pushInfo(f"Styler: applying labeling on field {self.label_field_expression}")
-                try:
-                    label_settings = QgsPalLayerSettings()
-                    if( self.label_text_format):
-                        text_format = self.label_text_format
-                        if( self.label_buffer_format):
-                            text_format.setBuffer(self.label_buffer_format)
-                        label_settings.setFormat(text_format)  # Apply text format if provided                        
-                    label_settings.fieldName = self.label_field_expression       
-                    label_settings.isExpression = True  # Treat fieldName as an expression             
-                    label_settings.placement = QgsPalLayerSettings.Horizontal                
-                    label_settings.placementSettings().allowDegradedPlacement = True
+            # Import here to avoid circular imports
+            from .ctdq_AlgoSymbology import PostVectorSymbology, PostRasterSymbology
 
-                    label_settings.enabled = True  # Enable labeling
-                    
-                    labeling = QgsVectorLayerSimpleLabeling(label_settings)
-                    layer.setLabeling(labeling)
-                    layer.setLabelsEnabled(True)                    
-                    layer.triggerRepaint()                    
-                    
-                except Exception as e_l:
-                    feedback.pushInfo(f"Styler: failed to apply labeling: {e_l}")
+            # Handle vector symbology
+            if isinstance(self.symbology, PostVectorSymbology):
+                self._apply_vector_symbology(layer, context, feedback)
+            
+            # Handle raster symbology (placeholder for future implementation)
+            elif isinstance(self.symbology, PostRasterSymbology):
+                self._apply_raster_symbology(layer, context, feedback)
 
-            # Applty categorized renderer
-            if self.colour_ramp_catergorised and self.color_ramp_field:                
-                feedback.pushInfo(f"Styler: applying categorized renderer on field {self.color_ramp_field}")
-                try:
-                    # Use the provided categorized renderer directly
-                    layer.setRenderer(self.colour_ramp_catergorised)
-                    feedback.pushInfo("Styler: categorized renderer applied.")
-                except Exception as e_r:
-                    feedback.pushInfo(f"Styler: failed to create/apply categorized renderer: {e_r}")
-
-            # Apply graduated renderer
-            if self.colour_ramp_graduated and self.color_ramp_field:                
-                feedback.pushInfo(f"Styler: applying graduated renderer on field {self.color_ramp_field}")
-                try:
-                    # Use the provided graduated renderer directly
-                    class_method = QgsClassificationQuantile()
-                    class_method.setLabelPrecision(1)
-                    self.colour_ramp_graduated.setClassificationMethod(class_method)
-                    self.colour_ramp_graduated.updateClasses(layer, 5)
-                    layer.setRenderer(self.colour_ramp_graduated)
-                    feedback.pushInfo("Styler: graduated renderer applied.")
-                except Exception as e_r:
-                    feedback.pushInfo(f"Styler: failed to create/apply graduated renderer: {e_r}")
-
-
-            # finally attempt to refresh legend/symbology view (best-effort)
+            # Finally attempt to refresh legend/symbology view (best-effort)
             try:
                 iface.layerTreeView().refreshLayerSymbology(layer.id())
                 QCoreApplication.processEvents()
@@ -126,10 +83,95 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                 except Exception:
                     pass
 
+    def _apply_vector_symbology(self, layer, context, feedback):
+        """Apply vector symbology from PostVectorSymbology object."""
+        # Apply renderer (graduated, categorized, or single symbol)
+        renderer = self.symbology.get_renderer()
+        if renderer:
+            try:
+                if self.symbology.graduated_renderer:
+                    feedback.pushInfo(f"Styler: applying graduated renderer on field {self.symbology.color_ramp_field}")
+                    class_method = QgsClassificationQuantile()
+                    class_method.setLabelPrecision(1)
+                    renderer.setClassificationMethod(class_method)
+                    renderer.updateClasses(layer, 5)
+                    layer.setRenderer(renderer)
+                    feedback.pushInfo("Styler: graduated renderer applied.")
+                
+                elif self.symbology.categorized_renderer:
+                    feedback.pushInfo(f"Styler: applying categorized renderer on field {self.symbology.color_ramp_field}")
+                    # If no categories were provided, generate them from unique values
+                    if not renderer.categories():
+                        self._generate_categorized_colors(layer, renderer, self.symbology.color_ramp_field)
+                    layer.setRenderer(renderer)
+                    feedback.pushInfo("Styler: categorized renderer applied.")
+                
+                elif self.symbology.single_symbol_renderer:
+                    feedback.pushInfo("Styler: applying single symbol renderer")
+                    layer.setRenderer(renderer)
+                    feedback.pushInfo("Styler: single symbol renderer applied.")
+                
+                layer.triggerRepaint()
+            except Exception as e_r:
+                feedback.pushInfo(f"Styler: failed to apply renderer: {e_r}")
+
+        # Apply labeling
+        if self.symbology.labeling:
+            try:
+                feedback.pushInfo(f"Styler: applying labeling")
+                layer.setLabeling(self.symbology.labeling)
+                layer.setLabelsEnabled(True)
+                layer.triggerRepaint()
+                feedback.pushInfo("Styler: labeling applied.")
+            except Exception as e_l:
+                feedback.pushInfo(f"Styler: failed to apply labeling: {e_l}")
+
+    def _generate_categorized_colors(self, layer, renderer, field_name):
+        """Generate random colors for categorized renderer based on unique values.
+
+        Args:
+            layer: The QgsVectorLayer to process
+            renderer: The QgsCategorizedSymbolRenderer to update
+            field_name: The name of the field to categorize
+        """
+        import random
+        categories = []
+        unique_values = layer.uniqueValues(layer.fields().indexFromName(field_name))
+        
+        # Get the symbol from the renderer or create a default one
+        base_symbol = renderer.sourceSymbol() if renderer.sourceSymbol() else QgsSymbol.defaultSymbol(layer.geometryType())
+        
+        for value in unique_values:
+            if value is not None:
+                # Create a copy of the symbol with different color
+                category_symbol = base_symbol.clone()
+                # Generate a random-ish color based on the value hash
+                random.seed(hash(str(value)))
+                color = QColor.fromHsv(random.randint(0, 359), 180, 200, 128)
+                category_symbol.setColor(color)
+                
+                category = QgsRendererCategory(value, category_symbol, str(value))
+                categories.append(category)
+        
+        # Update renderer with new categories using the correct API
+        renderer.deleteAllCategories()
+        for category in categories:
+            renderer.addCategory(category)
+
+    def _apply_raster_symbology(self, layer, context, feedback):
+        """Apply raster symbology from PostRasterSymbology object (placeholder)."""
+        feedback.pushInfo("Styler: raster symbology not yet implemented.")
+        # TODO: Implement raster symbology application
+
 
 def create_group(name: str, root: QgsLayerTree) -> None:
     """
     Create a group (if doesn't exist) in QGIS layer tree.
+
+    Args:
+        name: The name of the group to create
+        root: The root QgsLayerTree to search for the group
+
     """
     group = root.findGroup(name)  # find group in whole hierarchy
     if not group:  # if group does not already exists
@@ -151,6 +193,9 @@ def create_group(name: str, root: QgsLayerTree) -> None:
 def select_group(name: str) -> bool:
     """
     Select group item of a node tree
+
+    Args:
+        name: The name of the group to select
     """
 
     view = iface.layerTreeView()

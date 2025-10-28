@@ -123,6 +123,15 @@ class CTDQPlugin(object):
         self.validateAction.triggered.connect(self.openValidationDialog)
         self.menu.addAction(self.validateAction)
 
+        # Create action for the Mirror Project tool
+        self.mirrorProjectAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Mirror Project"),
+            self.iface.mainWindow(),
+        )
+        self.mirrorProjectAction.triggered.connect(self.openMirrorProjectDialog)
+        self.menu.addAction(self.mirrorProjectAction)
+
         # Create action that will start plugin help
         self.helpAction = QAction(
             QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
@@ -141,6 +150,114 @@ class CTDQPlugin(object):
         dialog = ValidateProjectReportDialog()
         dialog.exec_()
 
+    def openMirrorProjectDialog(self):
+        """Open the Mirror Project dialog."""
+        from .Tools.MirrorProject.ctdq_MirrorProjectDialog import MirrorProjectDialog
+        from .Tools.MirrorProject.ctdq_MirrorProjectLogic import MirrorProjectLogic
+        from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
+        from qgis.PyQt.QtCore import Qt
+        from qgis.core import QgsProject
+        
+        # Check if a project is open
+        if not QgsProject.instance().fileName():
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                self.tr("No Project Open"),
+                self.tr("Please open a QGIS project before using the Mirror Project tool.")
+            )
+            return
+        
+        dialog = MirrorProjectDialog(self.iface.mainWindow())
+        result = dialog.exec_()
+        
+        if result == dialog.Accepted:
+            # Get selected layers and target projects
+            selected_layers = dialog.get_selected_layers()
+            target_projects = dialog.get_target_projects()
+            skip_same_name = dialog.get_skip_same_name()
+            replace_data_source = dialog.get_replace_data_source()
+            update_symbology = dialog.get_update_symbology()
+            fix_layer_order = dialog.get_fix_layer_order()
+            
+            # Create progress dialog
+            progress = QProgressDialog(
+                "Exporting layers to target projects...",
+                "Cancel",
+                0,
+                100,
+                self.iface.mainWindow()
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Mirror Project")
+            progress.show()
+            
+            # Progress callback
+            def update_progress(message, percent):
+                progress.setLabelText(message)
+                progress.setValue(percent)
+                if progress.wasCanceled():
+                    raise Exception("Operation cancelled by user")
+            
+            try:
+                # Execute the export
+                results = MirrorProjectLogic.export_layers_to_projects(
+                    selected_layers,
+                    target_projects,
+                    skip_same_name,
+                    replace_data_source,
+                    update_symbology,
+                    fix_layer_order,
+                    update_progress
+                )
+                
+                progress.close()
+                
+                # Build result message
+                message = f"Export completed!\n\n"
+                message += f"Projects updated: {results['projects_updated']}\n"
+                message += f"Layers exported: {results['layers_exported']}\n"
+                
+                if results['warnings']:
+                    message += f"\nWarnings ({len(results['warnings'])}):\n"
+                    message += "\n".join(results['warnings'][:5])  # Show first 5 warnings
+                    if len(results['warnings']) > 5:
+                        message += f"\n... and {len(results['warnings']) - 5} more warnings"
+                
+                if results['errors']:
+                    message += f"\n\nErrors ({len(results['errors'])}):\n"
+                    message += "\n".join(results['errors'][:5])  # Show first 5 errors
+                    if len(results['errors']) > 5:
+                        message += f"\n... and {len(results['errors']) - 5} more errors"
+                
+                # Show appropriate message box based on results
+                if results['success']:
+                    if results['warnings']:
+                        QMessageBox.warning(
+                            self.iface.mainWindow(),
+                            self.tr("Mirror Project - Completed with Warnings"),
+                            message
+                        )
+                    else:
+                        QMessageBox.information(
+                            self.iface.mainWindow(),
+                            self.tr("Mirror Project - Success"),
+                            message
+                        )
+                else:
+                    QMessageBox.critical(
+                        self.iface.mainWindow(),
+                        self.tr("Mirror Project - Failed"),
+                        message
+                    )
+            
+            except Exception as e:
+                progress.close()
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    self.tr("Mirror Project - Error"),
+                    self.tr(f"An error occurred during export:\n{str(e)}")
+                )
+
     def unload(self):
         """
         Unloads the plugin and removes the provider from the processing registry.
@@ -154,4 +271,5 @@ class CTDQPlugin(object):
             self.menu = None
 
         del self.validateAction
+        del self.mirrorProjectAction
         del self.helpAction

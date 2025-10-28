@@ -45,6 +45,7 @@ from qgis.utils import iface  # Import iface to access the map canvas
 from PyQt5.QtCore import QVariant, QCoreApplication
 from PyQt5.QtGui import QColor  # Import QColor for random colors
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
+from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the new symbology class
 from ..ctdq_support import ctdprocessing_command_info
 from ..Functions import ctdq_raster_functions
 import processing  # Import processing for running algorithms
@@ -104,7 +105,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.INPUT_WATERSHED_THRESHOLD,
-                "Watershed Threshold",
+                "Catchment Threshold",
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=10000
             )
@@ -228,11 +229,34 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
 
-            smoothed_basins = processing.run("native:smoothgeometry", {
-                'INPUT': basins,
-                'ITERATIONS': smooth_iterations,
-                'OFFSET': smooth_offset,
-                'MAX_ANGLE': 180,
+            # Apply generalization to catchments using GRASS v.generalize with snakes method
+            generalized_basins = processing.run("grass7:v.generalize", {
+                'input': basins,
+                'type': 2,  # areas only
+                'method': 10,  # snakes method
+                'threshold': 1,
+                'look_ahead': 7,
+                'reduction': 50,
+                'slide': 0.5,
+                'angle_thresh': 3,
+                'degree_thresh': 0,
+                'closeness_thresh': 0,
+                'betweeness_thresh': 0,
+                'alpha': 1,
+                'beta': 1,
+                'iterations': 1,
+                'cats': '',
+                'where': '',
+                '-t': False,
+                '-l': True,
+                'output': QgsProcessing.TEMPORARY_OUTPUT,
+                'error': QgsProcessing.TEMPORARY_OUTPUT
+            }, context=context, feedback=feedback)['output']
+
+            # Fix geometries after generalization to handle any invalid geometries
+            feedback.pushInfo("Fixing geometries after generalization...")
+            smoothed_basins = processing.run("native:fixgeometries", {
+                'INPUT': generalized_basins,
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
 
@@ -302,122 +326,51 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             display_name = "Stream Network"
             
             try:
-                
-                # Create graduated symbol renderer for streams based on Shreve order
-                streams_renderer = QgsGraduatedSymbolRenderer()
-                streams_renderer.setClassAttribute("Shreve")
-            
-                # Apply Viridis color ramp
-                try:
-                    color_ramp = QgsStyle().defaultStyle().colorRamp("Viridis")
-                    if color_ramp and hasattr(streams_renderer, "updateColorRamp"):
-                        streams_renderer.updateColorRamp(color_ramp)
-                except Exception as e:
-                    feedback.pushInfo(f"Could not apply Viridis color ramp: {e}")
+                # Create symbology for streams
+                stream_symbology = PostVectorSymbology().set_graduated_renderer("Shreve", "Viridis")
                 
                 self.handle_post_processing(
                     "OUTPUT_STREAMS",
                     stream_dest_id,
                     display_name,
                     context,
-                    streams_renderer,  # graduated renderer
-                    None,  # no categorized renderer
-                    "Shreve"  # color_ramp_field
+                    stream_symbology
                 )
                 feedback.pushInfo("Registered stream network with Shreve-based Viridis styling.")
             except Exception as e:
                 feedback.pushWarning(f"Could not apply styling to stream network: {e}")
 
-            # Style catchments with blue outline only
+            # Style catchments with categorized renderer
             catchments_display_name = "Catchments"
             try:
-                # Create a transparent fill symbol with light grey outline
-                catchments_symbol = QgsFillSymbol.createSimple({
-                    'color': '128,128,128,128',  # 50% transparent grey fill
-                    'outline_color': '200,200,200,255',  # Light grey outline
-                    'outline_width': '0.05',
-                    'outline_style': 'solid'
-                })
-
-                # Create categorized renderer for catchments based on network field
-                categories = []
-                unique_values = joined_catchments.uniqueValues(joined_catchments.fields().indexFromName("network"))
-                
-                for i, value in enumerate(unique_values):
-                    if value is not None:
-                        # Create a copy of the symbol with different color
-                        category_symbol = catchments_symbol.clone()
-                        # Generate a random-ish color based on the value hash
-                        import random
-                        random.seed(hash(str(value)))
-                        color = QColor.fromHsv(random.randint(0, 359), 180, 200, 128)
-                        category_symbol.setColor(color)
-                        
-                        category = QgsRendererCategory(value, category_symbol, str(value))
-                        categories.append(category)
-                
-                catchments_renderer = QgsCategorizedSymbolRenderer("network", categories)
+                # Create symbology for catchments with random colors by network
+                catchment_symbology = PostVectorSymbology().set_categorized_renderer("network", generate_random_colors=True)
 
                 self.handle_post_processing(
                     "OUTPUT_CATCHMENTS",
                     catchments_dest_id,
                     catchments_display_name,
                     context,
-                    None,  # no graduated renderer
-                    catchments_renderer,  # use random color ramp for categorized rendering
-                    "network"  # categorize by network field
+                    catchment_symbology
                 )
                 feedback.pushInfo("Registered catchments with network-based categorized styling.")
             except Exception as e:
                 feedback.pushWarning(f"Could not apply styling to catchments: {e}")
 
-            # Style networks with blue outline only and labels
+            # Style networks with blue outline and labels
             networks_display_name = "Networks"
             try:
-                # Create a transparent fill symbol with blue outline
-                networks_symbol = QgsFillSymbol.createSimple({
-                    'color': '255,255,255,0',  # Transparent fill
-                    'outline_color': '0,0,255,255',  # Blue outline
-                    'outline_width': '0.6',
-                    'outline_style': 'solid'
-                })
-
-                # Create simple renderer for networks
-                from qgis.core import QgsSingleSymbolRenderer
-                networks_renderer = QgsSingleSymbolRenderer(networks_symbol)
-
-                # Create label settings
-                label_settings = QgsPalLayerSettings()
-                label_settings.fieldName = 'network'
-                label_settings.enabled = True
-                
-                # Set up text format
-                text_format = QgsTextFormat()
-                text_format.setSize(10)
-                text_format.setColor(QColor(0, 0, 0))  # Black text
-                
-                # Set up text buffer
-                buffer_settings = QgsTextBufferSettings()
-                buffer_settings.setEnabled(True)
-                buffer_settings.setSize(1.5)
-                buffer_settings.setColor(QColor(255, 255, 255))  # White buffer
-                text_format.setBuffer(buffer_settings)
-                
-                label_settings.setFormat(text_format)
-                
-                # Create labeling
-                labeling = QgsVectorLayerSimpleLabeling(label_settings)
+                # Create symbology for networks
+                network_symbology = (PostVectorSymbology()
+                    .set_simple_outline(outline_color="0,0,255,255", outline_width="0.6")
+                    .set_labeling("network", force_inside_polygon=True))
 
                 self.handle_post_processing(
                     "OUTPUT_NETWORKS",
                     networks_dest_id,
                     networks_display_name,
                     context,
-                    None,  # no graduated renderer
-                    None,  # no categorized renderer, using single symbol
-                    None,  # no color ramp field
-                    networks_renderer,  # single symbol renderer
-                    labeling  # add labeling
+                    network_symbology
                 )
                 feedback.pushInfo("Registered networks with blue outline styling and labels.")
             except Exception as e:

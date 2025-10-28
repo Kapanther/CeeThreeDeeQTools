@@ -55,6 +55,7 @@ from xml.dom.minidom import parseString
 from ..ctdq_support import CTDQSupport, ctdprocessing_command_info
 from ..Functions import ctdq_raster_functions
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
+from .ctdq_AlgoSymbology import PostVectorSymbology  # Import symbology class
 from osgeo import gdal
 import numpy as np
 from qgis.PyQt.QtCore import QMetaType
@@ -84,13 +85,6 @@ class FindRasterPonds(ctdqAlgoRun):
                     'outline_style': 'solid'
                 }) 
     LABEL_EXPRESSION = '"PONDid" || \'\\n\' || \'(RL=\' || "PONDRLmax" || \')\' || \'\\n\' || \'Vol =\' || "PONDvolume" || \' m³\' || \'\\n\' || \'Area=\' || "PONDarea" || \' m²\''
-    LABEL_TEXT_FORMAT = QgsTextFormat()                
-    LABEL_TEXT_FORMAT.setSize(8)
-    LABEL_TEXT_FORMAT.setColor(QColor(0, 0, 0))  # Black text
-    LABEL_BUFFER_FORMAT = QgsTextBufferSettings()
-    LABEL_BUFFER_FORMAT.setEnabled(True)
-    LABEL_BUFFER_FORMAT.setSize(1.5)
-    LABEL_BUFFER_FORMAT.setColor(QColor(255, 255, 255))  # White buffer
 
     def name(self):
         return self.TOOL_NAME
@@ -569,9 +563,10 @@ class FindRasterPonds(ctdqAlgoRun):
                         # store for fallback
                         if attrs:
                             changes_map[fid] = attrs
-
                     except Exception as fe:
-                        feedback.pushInfo(f"Feature {fid} processing error: {fe}")
+                        feedback.pushWarning(f"Exception updating attributes for feature ID {fid}: {fe}")
+                        per_feature_failures.append((fid, 'exception', str(fe)))
+                    
 
                 # Try to commit edits
                 committed = False
@@ -634,21 +629,30 @@ class FindRasterPonds(ctdqAlgoRun):
         self.load_outputs = True
         display_name = "Pond Outlines"
 
-        # lets apply styling using the LayerPostProcessor
+        # Create symbology for pond outlines
         try:
+            
+            # Create symbology with single symbol renderer and labeling
+            pond_symbology = (PostVectorSymbology()
+                .set_single_symbol_renderer(self.FILL_SYMBOL)
+                .set_labeling(
+                    field_name=self.LABEL_EXPRESSION,
+                    text_size=8,
+                    text_color=QColor(0, 0, 0),
+                    buffer_enabled=True,
+                    buffer_size=1.5,
+                    buffer_color=QColor(255, 255, 255),
+                    is_expression=True  # Explicitly mark as expression
+                ))
+            
             self.handle_post_processing(
                 "OUTPUT_POND_OUTLINES",
                 pond_outline_output_path,
                 display_name,
                 context,
-                None,
-                None,
-                None,
-                self.FILL_SYMBOL,
-                self.LABEL_EXPRESSION,
-                self.LABEL_TEXT_FORMAT,
-                self.LABEL_BUFFER_FORMAT
-                )
+                pond_symbology
+            )
+            feedback.pushInfo("Registered pond outlines with symbology.")
         except Exception as e:
             feedback.pushWarning(f"Could not apply styling/grouping to pond outlines layer: {e}")
 

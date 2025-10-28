@@ -71,16 +71,20 @@ class ctdqAlgoRun(ctdqAlgoBase):
     def handle_post_processing(self,
                                 entity: str,
                                 layer_path: str, 
-                                display_name,
-                                context, 
-                                color_ramp_graduated: QgsGraduatedSymbolRenderer = None,
-                                color_ramp_catergorised: QgsCategorizedSymbolRenderer = None,
-                                color_ramp_field: str = None, 
-                                fill_symbol_definition: QgsFillSymbol = None,
-                                label_field_expression: str = None,
-                                label_text_format: QgsTextFormat = None,
-                                label_buffer_format: QgsTextBufferSettings = None
+                                display_name: str,
+                                context,
+                                symbology=None
                                 ) -> None:
+        """
+        Register a layer for post-processing with optional symbology.
+        
+        Args:
+            entity: The parameter name (e.g., "OUTPUT_STREAMS")
+            layer_path: The path to the layer
+            display_name: The display name for the layer
+            context: The processing context
+            symbology: PostVectorSymbology or PostRasterSymbology object (optional)
+        """
         layer_details = context.LayerDetails(
             display_name, context.project(), display_name
         )
@@ -91,8 +95,7 @@ class ctdqAlgoRun(ctdqAlgoBase):
         
         if context.willLoadLayerOnCompletion(layer_path):
             self.styler_dict[layer_path] = LayerPostProcessor(
-                display_name, color_ramp_graduated, color_ramp_catergorised, color_ramp_field, fill_symbol_definition,
-                label_field_expression, label_text_format, label_buffer_format
+                display_name, symbology
             )
             context.layerToLoadOnCompletionDetails(layer_path).setPostProcessor(
                 self.styler_dict[layer_path]
