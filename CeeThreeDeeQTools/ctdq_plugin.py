@@ -132,6 +132,15 @@ class CTDQPlugin(object):
         self.mirrorProjectAction.triggered.connect(self.openMirrorProjectDialog)
         self.menu.addAction(self.mirrorProjectAction)
 
+        # Create action for the Package Layer Updater tool
+        self.packageLayerUpdaterAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Package Layer Updater"),
+            self.iface.mainWindow(),
+        )
+        self.packageLayerUpdaterAction.triggered.connect(self.openPackageLayerUpdaterDialog)
+        self.menu.addAction(self.packageLayerUpdaterAction)
+
         # Create action that will start plugin help
         self.helpAction = QAction(
             QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
@@ -244,6 +253,84 @@ class CTDQPlugin(object):
         dialog.set_export_callback(export_callback)
         dialog.show()
 
+    def openPackageLayerUpdaterDialog(self):
+        """Open the Package Layer Updater dialog."""
+        from .Tools.PackageLayerUpdater.ctdq_PackageLayerUpdaterDialog import PackageLayerUpdaterDialog
+        from .Tools.PackageLayerUpdater.ctdq_PackageLayerUpdaterLogic import PackageLayerUpdaterLogic
+        from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
+        from qgis.PyQt.QtCore import Qt
+        from qgis.core import QgsProject
+        
+        # Check if a project is open
+        if not QgsProject.instance().fileName():
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                self.tr("No Project Open"),
+                self.tr("Please open a QGIS project before using the Package Layer Updater tool.")
+            )
+            return
+        
+        # Create dialog non-modally and register update callback
+        dialog = PackageLayerUpdaterDialog(self.iface.mainWindow())
+        
+        # Define the update callback
+        def update_callback(progress_cb):
+            # Collect selections at time of update
+            selected_layers = dialog.get_selected_layers()
+            target_geopackages = dialog.get_target_geopackages()
+            
+            # Create progress dialog
+            progress = QProgressDialog(
+                "Updating geopackage layers...",
+                "Cancel",
+                0,
+                100,
+                self.iface.mainWindow()
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Package Layer Updater")
+            progress.show()
+            
+            def update_progress(message, percent):
+                progress.setLabelText(message)
+                progress.setValue(percent)
+                if progress.wasCanceled():
+                    raise Exception("Operation cancelled by user")
+                try:
+                    progress_cb(message, percent)
+                except Exception:
+                    pass
+            
+            try:
+                # Execute the update
+                results = PackageLayerUpdaterLogic.update_geopackage_layers(
+                    selected_layers,
+                    target_geopackages,
+                    update_progress
+                )
+                progress.close()
+                
+                # Display results in console
+                try:
+                    dialog.display_results(results)
+                except Exception:
+                    pass
+            except Exception as e:
+                progress.close()
+                try:
+                    dialog.append_console(f"Error during update: {str(e)}")
+                except Exception:
+                    pass
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    self.tr("Package Layer Updater - Error"),
+                    self.tr(f"An error occurred during update:\n{str(e)}")
+                )
+        
+        # Register callback and show dialog
+        dialog.set_update_callback(update_callback)
+        dialog.show()
+
     def unload(self):
         """
         Unloads the plugin and removes the provider from the processing registry.
@@ -258,4 +345,5 @@ class CTDQPlugin(object):
 
         del self.validateAction
         del self.mirrorProjectAction
+        del self.packageLayerUpdaterAction
         del self.helpAction
