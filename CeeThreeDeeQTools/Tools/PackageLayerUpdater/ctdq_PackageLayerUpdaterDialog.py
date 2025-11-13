@@ -21,7 +21,8 @@ from qgis.PyQt.QtWidgets import (
     QDialogButtonBox,
     QAbstractItemView,
     QMessageBox,
-    QTextEdit
+    QTextEdit,
+    QCheckBox
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsMapLayer
@@ -133,6 +134,23 @@ class PackageLayerUpdaterDialog(QDialog):
         button_layout.addWidget(self.selected_count_label)
         
         layout.addLayout(button_layout)
+        
+        # Options section
+        options_group = QGroupBox("Update Options")
+        options_layout = QVBoxLayout()
+        
+        # Update new layers only checkbox
+        self.update_new_only_checkbox = QCheckBox("Update New Layers Only (Skip Unchanged)")
+        self.update_new_only_checkbox.setChecked(False)  # Default to False
+        self.update_new_only_checkbox.setToolTip(
+            "If checked, only layers that have been modified since the last update will be processed.\n"
+            "The tool compares the source file's modification date with the last update timestamp in the geopackage."
+        )
+        options_layout.addWidget(self.update_new_only_checkbox)
+        
+        options_group.setLayout(options_layout)
+        layout.addWidget(options_group)
+        
         group.setLayout(layout)
         return group
     
@@ -182,12 +200,19 @@ class PackageLayerUpdaterDialog(QDialog):
         self.layer_list.clear()
         
         for layer in layers:
-            if layer and layer.isValid() and layer.type() == QgsMapLayer.VectorLayer:
-                item_text = f"{layer.name()} ({layer.geometryType().name if hasattr(layer, 'geometryType') else 'Vector'})"
-                self.layer_list.addItem(item_text)
-                item = self.layer_list.item(self.layer_list.count() - 1)
-                item.setData(Qt.UserRole, layer.id())
-    
+            if layer and layer.isValid():
+                # Include both vector and raster layers
+                if layer.type() == QgsMapLayer.VectorLayer:
+                    item_text = f"{layer.name()} (Vector - {layer.geometryType().name if hasattr(layer, 'geometryType') else 'Unknown'})"
+                    self.layer_list.addItem(item_text)
+                    item = self.layer_list.item(self.layer_list.count() - 1)
+                    item.setData(Qt.UserRole, layer.id())
+                elif layer.type() == QgsMapLayer.RasterLayer:
+                    item_text = f"{layer.name()} (Raster)"
+                    self.layer_list.addItem(item_text)
+                    item = self.layer_list.item(self.layer_list.count() - 1)
+                    item.setData(Qt.UserRole, layer.id())
+
     def on_layer_selection_changed(self):
         """Handle layer selection changes."""
         selected_items = self.layer_list.selectedItems()
@@ -272,6 +297,10 @@ class PackageLayerUpdaterDialog(QDialog):
         """Get the list of target geopackage file paths."""
         return self.target_geopackages
     
+    def get_update_new_only(self):
+        """Get whether to update only new/modified layers."""
+        return self.update_new_only_checkbox.isChecked()
+    
     def append_console(self, message: str):
         """Append a line to the console."""
         try:
@@ -293,6 +322,7 @@ class PackageLayerUpdaterDialog(QDialog):
             self.append_console(f"Success: {results.get('success', False)}")
             self.append_console(f"Geopackages updated: {results.get('geopackages_updated', 0)}")
             self.append_console(f"Layers updated: {results.get('layers_updated', 0)}")
+            self.append_console(f"Layers skipped: {results.get('layers_skipped', 0)}")
             
             warnings = results.get('warnings', [])
             errors = results.get('errors', [])

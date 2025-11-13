@@ -278,6 +278,7 @@ class CTDQPlugin(object):
             # Collect selections at time of update
             selected_layers = dialog.get_selected_layers()
             target_geopackages = dialog.get_target_geopackages()
+            update_new_only = dialog.get_update_new_only()
             
             # Create progress dialog
             progress = QProgressDialog(
@@ -306,7 +307,8 @@ class CTDQPlugin(object):
                 results = PackageLayerUpdaterLogic.update_geopackage_layers(
                     selected_layers,
                     target_geopackages,
-                    update_progress
+                    update_progress,
+                    update_new_only=update_new_only
                 )
                 progress.close()
                 

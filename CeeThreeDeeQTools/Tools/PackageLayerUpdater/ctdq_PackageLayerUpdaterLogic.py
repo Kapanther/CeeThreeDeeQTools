@@ -9,8 +9,8 @@
 ***************************************************************************
 """
 
-from qgis.core import QgsProject, QgsVectorLayer, QgsVectorFileWriter, QgsCoordinateTransformContext, QgsLayerMetadata
-from osgeo import ogr
+from qgis.core import QgsProject, QgsVectorLayer, QgsRasterLayer, QgsVectorFileWriter, QgsRasterFileWriter, QgsCoordinateTransformContext, QgsLayerMetadata
+from osgeo import ogr, gdal
 import os
 from datetime import datetime
 import sqlite3
@@ -25,7 +25,8 @@ class PackageLayerUpdaterLogic:
     def update_geopackage_layers(
         layer_ids: list,
         target_geopackages: list,
-        progress_callback=None
+        progress_callback=None,
+        update_new_only: bool = False
     ):
         """
         Update layers in geopackages with data from the active project.
@@ -34,6 +35,7 @@ class PackageLayerUpdaterLogic:
             layer_ids: List of layer IDs from the active project
             target_geopackages: List of geopackage file paths to update
             progress_callback: Optional callback function(message, progress)
+            update_new_only: Only update layers that have been modified since last update
         
         Returns:
             dict: Results with success/error information
@@ -42,6 +44,7 @@ class PackageLayerUpdaterLogic:
             'success': True,
             'geopackages_updated': 0,
             'layers_updated': 0,
+            'layers_skipped': 0,
             'errors': [],
             'warnings': []
         }
@@ -105,6 +108,18 @@ class PackageLayerUpdaterLogic:
                         
                         # Check if layer name exists in geopackage
                         if layer.name() in gpkg_layers:
+                            # Check if we should skip this layer based on modification date
+                            if update_new_only:
+                                should_update = PackageLayerUpdaterLogic._should_update_layer(
+                                    layer, gpkg_path, results
+                                )
+                                if not should_update:
+                                    results['layers_skipped'] += 1
+                                    results['warnings'].append(
+                                        f"⊘ Skipped '{layer.name()}' in {os.path.basename(gpkg_path)} (not modified since last update)"
+                                    )
+                                    continue
+                        
                             if PackageLayerUpdaterLogic._update_layer_in_geopackage(
                                 layer, gpkg_path, results
                             ):
@@ -120,7 +135,7 @@ class PackageLayerUpdaterLogic:
                         else:
                             results['warnings'].append(
                                 f"Layer '{layer.name()}' not found in {os.path.basename(gpkg_path)}"
-                            )
+                        )
                     
                     except Exception as layer_error:
                         results['errors'].append(
@@ -140,36 +155,105 @@ class PackageLayerUpdaterLogic:
     
     @staticmethod
     def _get_geopackage_layers(gpkg_path: str) -> list:
-        """Get list of layer names in a geopackage."""
-        try:
-            ds = ogr.Open(gpkg_path, 0)  # 0 = read-only
-            if ds is None:
-                return []
-            
-            layer_names = []
-            for i in range(ds.GetLayerCount()):
-                layer = ds.GetLayerByIndex(i)
-                if layer:
-                    layer_names.append(layer.GetName())
-            
-            ds = None
-            return layer_names
+        """
+        Get list of both vector and raster layer names in a geopackage.
         
+        Args:
+            gpkg_path: Path to the geopackage
+        
+        Returns:
+            list: List of layer names (both vector and raster)
+        """
+        layer_names = []
+        
+        try:
+            # Get vector layers using OGR
+            ds = ogr.Open(gpkg_path, 0)  # 0 = read-only
+            if ds is not None:
+                for i in range(ds.GetLayerCount()):
+                    layer = ds.GetLayerByIndex(i)
+                    if layer:
+                        layer_names.append(layer.GetName())
+                ds = None
         except Exception as e:
-            print(f"Error reading geopackage layers: {e}")
-            return []
+            print(f"Error reading vector layers from geopackage: {e}")
+        
+        try:
+            # Get raster layers using GDAL
+            ds = gdal.Open(gpkg_path, gdal.GA_ReadOnly)
+            if ds is not None:
+                # Check for subdatasets (rasters in geopackage)
+                subdatasets = ds.GetSubDatasets()
+                if subdatasets:
+                    for subdataset_desc, subdataset_name in subdatasets:
+                        # Extract the raster table name from the subdataset description
+                        # Format is typically: "GPKG:path/to/file.gpkg:table_name - ..."
+                        try:
+                            # Parse the table name from subdataset_name or subdataset_desc
+                            if ':' in subdataset_name:
+                                parts = subdataset_name.split(':')
+                                if len(parts) >= 3:
+                                    table_name = parts[2]  # GPKG:path:table_name
+                                    if table_name not in layer_names:
+                                        layer_names.append(table_name)
+                        except Exception as parse_err:
+                            print(f"Error parsing raster subdataset name: {parse_err}")
+                
+                ds = None
+        except Exception as e:
+            print(f"Error reading raster layers from geopackage: {e}")
+        
+        return layer_names
     
     @staticmethod
     def _update_layer_in_geopackage(
-        source_layer: QgsVectorLayer,
+        source_layer,  # Can be QgsVectorLayer or QgsRasterLayer
         gpkg_path: str,
         results: dict = None
     ) -> bool:
         """
         Update a layer in a geopackage with data from the source layer.
+        Supports both vector and raster layers.
         
         Args:
-            source_layer: The layer from the active project
+            source_layer: The layer from the active project (vector or raster)
+            gpkg_path: Path to the geopackage
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Determine layer type
+            from qgis.core import QgsMapLayer
+            is_raster = source_layer.type() == QgsMapLayer.RasterLayer
+            
+            if is_raster:
+                return PackageLayerUpdaterLogic._update_raster_layer_in_geopackage(
+                    source_layer, gpkg_path, results
+                )
+            else:
+                return PackageLayerUpdaterLogic._update_vector_layer_in_geopackage(
+                    source_layer, gpkg_path, results
+                )
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Exception updating layer '{source_layer.name()}': {str(e)}")
+            print(f"Error updating layer in geopackage: {e}")
+            return False
+
+    @staticmethod
+    def _update_vector_layer_in_geopackage(
+        source_layer: QgsVectorLayer,
+        gpkg_path: str,
+        results: dict = None
+    ) -> bool:
+        """
+        Update a vector layer in a geopackage with data from the source layer.
+        
+        Args:
+            source_layer: The vector layer from the active project
             gpkg_path: Path to the geopackage
             results: Optional results dict for messages
         
@@ -196,7 +280,7 @@ class PackageLayerUpdaterLogic:
                 if layer and layer.GetName() == source_layer.name():
                     ds.DeleteLayer(i)
                     if results:
-                        results['warnings'].append(f"Deleted existing layer '{source_layer.name()}' from geopackage")
+                        results['warnings'].append(f"Deleted existing vector layer '{source_layer.name()}' from geopackage")
                     break
             
             ds = None
@@ -233,6 +317,7 @@ class PackageLayerUpdaterLogic:
             options.layerName = source_layer.name()
             options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
             options.layerMetadata = layer_metadata  # Pass metadata directly in options
+            options.saveMetadata = True
             
             error = QgsVectorFileWriter.writeAsVectorFormatV3(
                 source_layer,
@@ -244,12 +329,12 @@ class PackageLayerUpdaterLogic:
             if error[0] != QgsVectorFileWriter.NoError:
                 if results:
                     results['errors'].append(
-                        f"Error writing layer '{source_layer.name()}' to geopackage: {error[1]}"
+                        f"Error writing vector layer '{source_layer.name()}' to geopackage: {error[1]}"
                     )
                 return False
             
             if results:
-                results['warnings'].append(f"✓ Layer '{source_layer.name()}' written to geopackage")
+                results['warnings'].append(f"✓ Vector layer '{source_layer.name()}' written to geopackage")
             
             # Verify the history was saved
             import time
@@ -276,8 +361,187 @@ class PackageLayerUpdaterLogic:
         
         except Exception as e:
             if results:
-                results['errors'].append(f"Exception updating layer '{source_layer.name()}': {str(e)}")
-            print(f"Error updating layer in geopackage: {e}")
+                results['errors'].append(f"Exception updating vector layer '{source_layer.name()}': {str(e)}")
+            print(f"Error updating vector layer in geopackage: {e}")
+            return False
+
+    @staticmethod
+    def _update_raster_layer_in_geopackage(
+        source_layer: QgsRasterLayer,
+        gpkg_path: str,
+        results: dict = None
+    ) -> bool:
+        """
+        Update a raster layer in a geopackage with data from the source layer.
+        
+        Args:
+            source_layer: The raster layer from the active project
+            gpkg_path: Path to the geopackage
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # First, preserve the existing layer's metadata history
+            existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
+            
+            if results and existing_history:
+                results['warnings'].append(f"Preserved {len(existing_history)} existing history entries for '{source_layer.name()}'")
+            
+            # Delete the existing raster layer from the geopackage using GDAL
+            ds = gdal.Open(gpkg_path, gdal.GA_Update)
+            if ds is None:
+                if results:
+                    results['errors'].append(f"Could not open geopackage for writing: {gpkg_path}")
+                return False
+            
+            # Check if the raster exists in the geopackage
+            raster_deleted = False
+            for i in range(ds.RasterCount + 1):  # Check all subdatasets
+                subdatasets = ds.GetSubDatasets()
+                for subdataset_desc, subdataset_name in subdatasets:
+                    if source_layer.name() in subdataset_desc:
+                        # Can't delete directly, will overwrite instead
+                        raster_deleted = True
+                        break
+            
+            ds = None
+            
+            if results and raster_deleted:
+                results['warnings'].append(f"Will overwrite existing raster layer '{source_layer.name()}' in geopackage")
+            
+            # Create new history entry
+            new_history_entry = PackageLayerUpdaterLogic._create_history_entry(source_layer)
+            
+            # Combine existing history with new entry
+            updated_history = existing_history + [new_history_entry] if existing_history else [new_history_entry]
+            
+            # Get the source raster file path
+            source_path = source_layer.source().split('|')[0]
+            
+            # Use GDAL to write the raster to the geopackage
+            # Open source raster
+            src_ds = gdal.Open(source_path, gdal.GA_ReadOnly)
+            if src_ds is None:
+                if results:
+                    results['errors'].append(f"Could not open source raster: {source_path}")
+                return False
+            
+            # Create output in geopackage with GPKG driver
+            driver = gdal.GetDriverByName('GPKG')
+            if driver is None:
+                if results:
+                    results['errors'].append("GPKG driver not available")
+                src_ds = None
+                return False
+            
+            # Set creation options for geopackage raster
+            creation_options = [
+                f'RASTER_TABLE={source_layer.name()}',
+                'APPEND_SUBDATASET=YES'  # Append to existing geopackage
+            ]
+            
+            # Create the raster in the geopackage
+            dst_ds = driver.CreateCopy(
+                gpkg_path,
+                src_ds,
+                strict=0,
+                options=creation_options
+            )
+            
+            if dst_ds is None:
+                if results:
+                    results['errors'].append(f"Failed to write raster '{source_layer.name()}' to geopackage")
+                src_ds = None
+                return False
+            
+            # Close datasets
+            dst_ds = None
+            src_ds = None
+            
+            if results:
+                results['warnings'].append(f"✓ Raster layer '{source_layer.name()}' written to geopackage")
+                results['warnings'].append(f"  Latest: {new_history_entry}")
+            
+            # Write history metadata to the geopackage contents table
+            import time
+            time.sleep(0.2)  # Delay to ensure write is complete
+            
+            # Write history to gpkg_contents description field
+            PackageLayerUpdaterLogic._write_raster_history_to_gpkg(
+                gpkg_path,
+                source_layer.name(),
+                updated_history,
+                results
+            )
+            
+            return True
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Exception updating raster layer '{source_layer.name()}': {str(e)}")
+            print(f"Error updating raster layer in geopackage: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def _write_raster_history_to_gpkg(
+        gpkg_path: str,
+        layer_name: str,
+        history_entries: list,
+        results: dict = None
+    ) -> bool:
+        """
+        Write history metadata for a raster layer directly to the geopackage.
+        
+        Args:
+            gpkg_path: Path to the geopackage
+            layer_name: Name of the raster layer
+            history_entries: List of history entry strings
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Connect to the geopackage database
+            conn = sqlite3.connect(gpkg_path)
+            cursor = conn.cursor()
+            
+            # Format history as a text block with prefix
+            history_text = "HISTORY:\n" + "\n".join(history_entries)
+            
+            # Update the description field in gpkg_contents
+            # For rasters, the table_name might have a prefix
+            cursor.execute(
+                "UPDATE gpkg_contents SET description = ? WHERE table_name = ? OR table_name LIKE ?",
+                (history_text, layer_name, f"%{layer_name}%")
+            )
+            
+            rows_affected = cursor.rowcount
+            
+            conn.commit()
+            conn.close()
+            
+            if rows_affected > 0:
+                if results:
+                    results['warnings'].append(
+                        f"Wrote {len(history_entries)} history entries to database for raster layer"
+                    )
+                return True
+            else:
+                if results:
+                    results['warnings'].append(
+                        f"No rows updated when writing history for raster '{layer_name}'"
+                    )
+                return False
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error writing raster history to geopackage: {str(e)}")
+            print(f"Error writing raster history: {e}")
             return False
 
     @staticmethod
@@ -345,10 +609,169 @@ class PackageLayerUpdaterLogic:
             source_layer: The source layer being written
         
         Returns:
-            str: History entry in format "YYYY-MM-DD@HH-MM-SS; source_path"
+            str: History entry in format "Updated;YYYY-MM-DD@HH-MM-SS;User;username;Source;path;DateModified;file_date"
         """
         timestamp = datetime.now().strftime("%Y-%m-%d@%H-%M-%S")
         source_path = source_layer.source()
+        user = os.getenv('USERNAME') or os.getenv('USER') or 'UnknownUser'
         
-        # Format: timestamp; source_path
-        return f"{timestamp}; {source_path}"
+        # Get the file modified date from the source file
+        file_modified_date = "Unknown"
+        try:
+            # Extract the actual file path from the source
+            # Handle cases like "C:/path/to/file.shp" or "C:/path/to/file.gpkg|layername=layer"
+            file_path = source_path.split('|')[0]  # Remove any layername parameter
+            
+            if os.path.exists(file_path):
+                # Get the modification time and format it
+                mtime = os.path.getmtime(file_path)
+                file_modified_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d@%H-%M-%S")
+        except Exception as e:
+            print(f"Could not get file modified date: {e}")
+            file_modified_date = "Unknown"
+        
+        # Format the history entry to include all details
+        return f"Updated;{timestamp};User;{user};DateModified;{file_modified_date};Source;{source_path}"
+    
+    @staticmethod
+    def _should_update_layer(
+        source_layer: QgsVectorLayer,
+        gpkg_path: str,
+        results: dict = None
+    ) -> bool:
+        """
+        Determine if a layer should be updated based on modification dates.
+        
+        Args:
+            source_layer: The layer from the active project
+            gpkg_path: Path to the geopackage
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if layer should be updated, False if it can be skipped
+        """
+        try:
+            # Get the source file's modification date
+            source_path = source_layer.source().split('|')[0]
+            
+            if not os.path.exists(source_path):
+                if results:
+                    results['warnings'].append(f"Cannot check modification date for '{source_layer.name()}': source file not found")
+                return True  # Update anyway if we can't verify
+            
+            source_mtime = os.path.getmtime(source_path)
+            source_date = datetime.fromtimestamp(source_mtime)
+            
+            if results:
+                results['warnings'].append(f"Source file '{source_layer.name()}' modified: {source_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Get the existing history from the geopackage
+            existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
+            
+            if not existing_history:
+                # No history = new layer, should update
+                if results:
+                    results['warnings'].append(f"Layer '{source_layer.name()}' has no history, will update")
+                return True
+            
+            # Parse the most recent history entry
+            latest_entry = existing_history[-1]  # Last entry is most recent
+            parsed = PackageLayerUpdaterLogic._parse_history_entry(latest_entry)
+            
+            if not parsed or 'date_modified' not in parsed or parsed['date_modified'] is None:
+                if results:
+                    results['warnings'].append(f"Cannot parse history date for '{source_layer.name()}', will update")
+                return True  # Update if we can't parse history
+            
+            # Get the history date
+            history_date = parsed['date_modified']
+            
+            if results:
+                results['warnings'].append(f"History date for '{source_layer.name()}': {history_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Compare modification dates with tolerance of 2 seconds (for filesystem precision)
+            time_diff = (source_date - history_date).total_seconds()
+            
+            if results:
+                results['warnings'].append(f"Time difference: {time_diff:.1f} seconds")
+            
+            if time_diff > 2.0:  # Source is more than 2 seconds newer
+                if results:
+                    results['warnings'].append(
+                        f"✓ Layer '{source_layer.name()}' WILL UPDATE: "
+                        f"source is {time_diff:.1f}s newer than history"
+                    )
+                return True
+            else:
+                if results:
+                    results['warnings'].append(
+                        f"⊘ Layer '{source_layer.name()}' WILL SKIP: "
+                        f"source is not significantly newer (diff: {time_diff:.1f}s)"
+                    )
+                return False
+        
+        except Exception as e:
+            if results:
+                results['warnings'].append(f"Error checking if '{source_layer.name()}' should update: {str(e)}")
+            print(f"Error in _should_update_layer: {e}")
+            import traceback
+            traceback.print_exc()
+            return True  # Update anyway if there's an error
+
+    @staticmethod
+    def _parse_history_entry(history_entry: str) -> dict:
+        """
+        Parse a history entry string into a structured dictionary.
+        
+        Args:
+            history_entry: History string in format "Updated;timestamp;User;username;DateModified;file_date;Source;path"
+        
+        Returns:
+            dict: Parsed history with keys: action, timestamp, user, date_modified, source
+                  Returns empty dict if parsing fails
+        """
+        try:
+            # Split by semicolon
+            parts = history_entry.split(';')
+            
+            if len(parts) < 8:  # Need at least: Updated, timestamp, User, username, DateModified, date, Source, path
+                print(f"History entry has insufficient parts: {history_entry}")
+                return {}
+            
+            parsed = {
+                'action': parts[0].strip(),
+                'timestamp': None,
+                'user': None,
+                'date_modified': None,
+                'source': None
+            }
+            
+            # Parse timestamp (parts[1])
+            try:
+                timestamp_str = parts[1].strip()
+                parsed['timestamp'] = datetime.strptime(timestamp_str, "%Y-%m-%d@%H-%M-%S")
+            except Exception as e:
+                print(f"Could not parse timestamp '{parts[1]}': {e}")
+            
+            # Parse user (parts[3])
+            if len(parts) > 3:
+                parsed['user'] = parts[3].strip()
+            
+            # Parse date modified (parts[5])
+            if len(parts) > 5:
+                try:
+                    date_modified_str = parts[5].strip()
+                    if date_modified_str != "Unknown":
+                        parsed['date_modified'] = datetime.strptime(date_modified_str, "%Y-%m-%d@%H-%M-%S")
+                except Exception as e:
+                    print(f"Could not parse date modified '{parts[5]}': {e}")
+            
+            # Parse source (parts[7])
+            if len(parts) > 7:
+                parsed['source'] = parts[7].strip()
+            
+            return parsed
+        
+        except Exception as e:
+            print(f"Error parsing history entry: {e}")
+            return {}
