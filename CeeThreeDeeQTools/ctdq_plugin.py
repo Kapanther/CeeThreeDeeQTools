@@ -167,19 +167,23 @@ class CTDQPlugin(object):
             )
             return
         
+        # Create dialog non-modally and register export callback so the dialog remains open after run
         dialog = MirrorProjectDialog(self.iface.mainWindow())
-        result = dialog.exec_()
-        
-        if result == dialog.Accepted:
-            # Get selected layers and target projects
+        # Define the export callback to be registered with the dialog.
+        def export_callback(progress_cb):
+            # Collect selections and options at time of export
             selected_layers = dialog.get_selected_layers()
+            selected_themes = dialog.get_selected_themes()
+            selected_layouts = dialog.get_selected_layouts()
             target_projects = dialog.get_target_projects()
-            skip_same_name = dialog.get_skip_same_name()
             replace_data_source = dialog.get_replace_data_source()
             update_symbology = dialog.get_update_symbology()
             fix_layer_order = dialog.get_fix_layer_order()
-            
-            # Create progress dialog
+            create_backups = dialog.get_create_backups()
+            add_layer_groups = dialog.get_add_layer_groups()
+            preserve_layer_filters = dialog.get_preserve_layer_filters()
+
+            # Create progress dialog (modal) to show progress bar; console will contain textual log
             progress = QProgressDialog(
                 "Exporting layers to target projects...",
                 "Cancel",
@@ -190,73 +194,55 @@ class CTDQPlugin(object):
             progress.setWindowModality(Qt.WindowModal)
             progress.setWindowTitle("Mirror Project")
             progress.show()
-            
-            # Progress callback
+
             def update_progress(message, percent):
                 progress.setLabelText(message)
                 progress.setValue(percent)
                 if progress.wasCanceled():
                     raise Exception("Operation cancelled by user")
-            
+                # Also forward to dialog console via progress_cb
+                try:
+                    progress_cb(message, percent)
+                except Exception:
+                    pass
+
             try:
                 # Execute the export
                 results = MirrorProjectLogic.export_layers_to_projects(
                     selected_layers,
                     target_projects,
-                    skip_same_name,
+                    False,  # skip_same_name removed from UI; do not skip
                     replace_data_source,
                     update_symbology,
                     fix_layer_order,
-                    update_progress
+                    update_progress,
+                    create_backups=create_backups,
+                    add_layer_groups=add_layer_groups,
+                    selected_themes=selected_themes,
+                    selected_layouts=selected_layouts,
+                    preserve_layer_filters=preserve_layer_filters
                 )
-                
                 progress.close()
-                
-                # Build result message
-                message = f"Export completed!\n\n"
-                message += f"Projects updated: {results['projects_updated']}\n"
-                message += f"Layers exported: {results['layers_exported']}\n"
-                
-                if results['warnings']:
-                    message += f"\nWarnings ({len(results['warnings'])}):\n"
-                    message += "\n".join(results['warnings'][:5])  # Show first 5 warnings
-                    if len(results['warnings']) > 5:
-                        message += f"\n... and {len(results['warnings']) - 5} more warnings"
-                
-                if results['errors']:
-                    message += f"\n\nErrors ({len(results['errors'])}):\n"
-                    message += "\n".join(results['errors'][:5])  # Show first 5 errors
-                    if len(results['errors']) > 5:
-                        message += f"\n... and {len(results['errors']) - 5} more errors"
-                
-                # Show appropriate message box based on results
-                if results['success']:
-                    if results['warnings']:
-                        QMessageBox.warning(
-                            self.iface.mainWindow(),
-                            self.tr("Mirror Project - Completed with Warnings"),
-                            message
-                        )
-                    else:
-                        QMessageBox.information(
-                            self.iface.mainWindow(),
-                            self.tr("Mirror Project - Success"),
-                            message
-                        )
-                else:
-                    QMessageBox.critical(
-                        self.iface.mainWindow(),
-                        self.tr("Mirror Project - Failed"),
-                        message
-                    )
-            
+                # Display results in the dialog console
+                try:
+                    dialog.display_results(results)
+                except Exception:
+                    pass
             except Exception as e:
                 progress.close()
+                try:
+                    dialog.append_console(f"Error during export: {str(e)}")
+                except Exception:
+                    pass
                 QMessageBox.critical(
                     self.iface.mainWindow(),
                     self.tr("Mirror Project - Error"),
                     self.tr(f"An error occurred during export:\n{str(e)}")
                 )
+
+        # Register callback and show dialog (keep it open)
+        dialog.set_export_callback(export_callback)
+        dialog.show()
 
     def unload(self):
         """

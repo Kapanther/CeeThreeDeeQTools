@@ -21,7 +21,8 @@ from qgis.PyQt.QtWidgets import (
     QDialogButtonBox,
     QAbstractItemView,
     QMessageBox,
-    QCheckBox  # Add QCheckBox import
+    QCheckBox,  # Add QCheckBox import
+    QTextEdit  # add QTextEdit import for console
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsMapLayer
@@ -36,15 +37,20 @@ class MirrorProjectDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Mirror Project - Export Layers")
-        self.setMinimumWidth(800)
+        self.setMinimumWidth(1200)  # Increased width to accommodate layouts
         self.setMinimumHeight(600)
         
         self.selected_layers = []
         self.target_projects = []
+        self.selected_themes = []  # Add selected themes list
+        self.selected_layouts = []  # Add selected layouts list
+        self.master_project_path = QgsProject.instance().fileName()  # Store master project path
         
         self.init_ui()
         self.load_master_project_layers()
-    
+        self.load_master_project_themes()  # Load themes
+        self.load_master_project_layouts()  # Load layouts
+
     def init_ui(self):
         """Initialize the user interface."""
         main_layout = QVBoxLayout()
@@ -66,90 +72,216 @@ class MirrorProjectDialog(QDialog):
         projects_group = self.create_target_projects_group()
         main_layout.addWidget(projects_group)
         
+        # Console / log area
+        console_group = QGroupBox("Console")
+        console_layout = QVBoxLayout()
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setAcceptRichText(False)
+        self.console.setMinimumHeight(150)
+        console_layout.addWidget(self.console)
+        console_group.setLayout(console_layout)
+        main_layout.addWidget(console_group)
+        
         # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        main_layout.addWidget(button_box)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        # Relabel buttons to be clearer and reduce accidental activation
+        ok_btn = self.button_box.button(QDialogButtonBox.Ok)
+        cancel_btn = self.button_box.button(QDialogButtonBox.Cancel)
+        if ok_btn:
+            ok_btn.setText("Run Mirror Project")
+            ok_btn.setToolTip("Run the mirror export. The dialog will remain open so you can review the console output.")
+            # Prevent Enter key from triggering the run accidentally
+            try:
+                ok_btn.setAutoDefault(False)
+                ok_btn.setDefault(False)
+            except Exception:
+                pass
+        if cancel_btn:
+            cancel_btn.setText("Exit")
+            cancel_btn.setToolTip("Close this dialog (any running export should be cancelled first).")
+
+        # Connect Cancel to close dialog
+        self.button_box.rejected.connect(self.reject)
+        # Connect OK to custom start-export handler (does not close dialog)
+        self.button_box.accepted.connect(self._on_start_export)
+        main_layout.addWidget(self.button_box)
         
         self.setLayout(main_layout)
+        # callback placeholder; plugin will set via set_export_callback
+        self._export_callback = None
+        self._export_running = False
     
     def create_layer_selection_group(self):
         """Create the layer selection group box."""
-        group = QGroupBox("Select Layers to Export")
+        group = QGroupBox("Select Layers, Themes, and Layouts to Export")
         layout = QVBoxLayout()
         
         # Instructions
-        instructions = QLabel("Select the layers from the master project that you want to export to child projects:")
+        instructions = QLabel("Select the layers, map themes, and print layouts from the master project that you want to export to child projects:")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
         
-        # Layer list widget
+        # Create horizontal layout for layers, themes, and layouts side-by-side
+        lists_layout = QHBoxLayout()
+        
+        # Layer selection (left side)
+        layer_container = QVBoxLayout()
+        layer_label = QLabel("<b>Layers</b>")
+        layer_container.addWidget(layer_label)
+        
         self.layer_list = QListWidget()
         self.layer_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.layer_list.itemSelectionChanged.connect(self.on_layer_selection_changed)
-        layout.addWidget(self.layer_list)
+        layer_container.addWidget(self.layer_list)
         
-        # Selection buttons
-        button_layout = QHBoxLayout()
+        # Layer selection buttons
+        layer_button_layout = QHBoxLayout()
+        select_all_layers_btn = QPushButton("Select All")
+        select_all_layers_btn.clicked.connect(self.select_all_layers)
+        layer_button_layout.addWidget(select_all_layers_btn)
         
-        select_all_btn = QPushButton("Select All")
-        select_all_btn.clicked.connect(self.select_all_layers)
-        button_layout.addWidget(select_all_btn)
-        
-        deselect_all_btn = QPushButton("Deselect All")
-        deselect_all_btn.clicked.connect(self.deselect_all_layers)
-        button_layout.addWidget(deselect_all_btn)
-        
-        button_layout.addStretch()
+        deselect_all_layers_btn = QPushButton("Deselect All")
+        deselect_all_layers_btn.clicked.connect(self.deselect_all_layers)
+        layer_button_layout.addWidget(deselect_all_layers_btn)
+        layer_container.addLayout(layer_button_layout)
         
         self.selected_count_label = QLabel("Selected: 0 layers")
-        button_layout.addWidget(self.selected_count_label)
+        layer_container.addWidget(self.selected_count_label)
         
-        layout.addLayout(button_layout)
+        lists_layout.addLayout(layer_container)
+        
+        # Theme selection (middle)
+        theme_container = QVBoxLayout()
+        theme_label = QLabel("<b>Map Themes</b>")
+        theme_container.addWidget(theme_label)
+        
+        self.theme_list = QListWidget()
+        self.theme_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.theme_list.itemSelectionChanged.connect(self.on_theme_selection_changed)
+        theme_container.addWidget(self.theme_list)
+        
+        # Theme selection buttons
+        theme_button_layout = QHBoxLayout()
+        select_all_themes_btn = QPushButton("Select All")
+        select_all_themes_btn.clicked.connect(self.select_all_themes)
+        theme_button_layout.addWidget(select_all_themes_btn)
+        
+        deselect_all_themes_btn = QPushButton("Deselect All")
+        deselect_all_themes_btn.clicked.connect(self.deselect_all_themes)
+        theme_button_layout.addWidget(deselect_all_themes_btn)
+        theme_container.addLayout(theme_button_layout)
+        
+        self.selected_themes_count_label = QLabel("Selected: 0 themes")
+        theme_container.addWidget(self.selected_themes_count_label)
+        
+        lists_layout.addLayout(theme_container)
+        
+        # Layout selection (right side)
+        layout_container = QVBoxLayout()
+        layout_label = QLabel("<b>Print Layouts</b>")
+        layout_container.addWidget(layout_label)
+        
+        self.layout_list = QListWidget()
+        self.layout_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.layout_list.itemSelectionChanged.connect(self.on_layout_selection_changed)
+        layout_container.addWidget(self.layout_list)
+        
+        # Layout selection buttons
+        layout_button_layout = QHBoxLayout()
+        select_all_layouts_btn = QPushButton("Select All")
+        select_all_layouts_btn.clicked.connect(self.select_all_layouts)
+        layout_button_layout.addWidget(select_all_layouts_btn)
+        
+        deselect_all_layouts_btn = QPushButton("Deselect All")
+        deselect_all_layouts_btn.clicked.connect(self.deselect_all_layouts)
+        layout_button_layout.addWidget(deselect_all_layouts_btn)
+        layout_container.addLayout(layout_button_layout)
+        
+        self.selected_layouts_count_label = QLabel("Selected: 0 layouts")
+        layout_container.addWidget(self.selected_layouts_count_label)
+        
+        lists_layout.addLayout(layout_container)
+        
+        layout.addLayout(lists_layout)
         
         # Options section
         options_group = QGroupBox("Export Options")
-        options_layout = QVBoxLayout()
+        options_layout = QHBoxLayout()  # Changed from QVBoxLayout to QHBoxLayout
         
-        # Skip layers with same name checkbox
-        self.skip_same_name_checkbox = QCheckBox("Skip Importing Layers with Same Name")
-        self.skip_same_name_checkbox.setChecked(True)  # Default to True
-        self.skip_same_name_checkbox.setToolTip(
-            "If checked, layers that already exist in the target project with the same name will be skipped.\n"
-            "If unchecked, existing layers will be removed and replaced with the new layers."
-        )
-        self.skip_same_name_checkbox.stateChanged.connect(self.on_skip_same_name_changed)
-        options_layout.addWidget(self.skip_same_name_checkbox)
+        # Existing Layer Handling sub-panel
+        existing_group = QGroupBox("Existing Layer Handling")
+        existing_layout = QVBoxLayout()
         
-        # Replace data source checkbox
+        # Replace data source checkbox (now independent)
         self.replace_data_source_checkbox = QCheckBox("Replace Data Source for Layers With Same Name")
         self.replace_data_source_checkbox.setChecked(False)  # Default to False
-        self.replace_data_source_checkbox.setEnabled(False)  # Disabled by default (since skip is checked)
         self.replace_data_source_checkbox.setToolTip(
             "If checked, existing layers with the same name will have their data source updated\n"
-            "to point to the new layer source, preserving symbology and other layer properties.\n"
-            "This option is only available when 'Skip Importing Layers with Same Name' is unchecked."
+            "to point to the new layer source, preserving symbology and other layer properties."
         )
-        options_layout.addWidget(self.replace_data_source_checkbox)
+        existing_layout.addWidget(self.replace_data_source_checkbox)
         
-        # Update symbology checkbox
+        # Update symbology checkbox (now in existing handling)
         self.update_symbology_checkbox = QCheckBox("Update Symbology")
         self.update_symbology_checkbox.setChecked(True)  # Default to True
         self.update_symbology_checkbox.setToolTip(
             "If checked, layer symbology (styling, labels, etc.) from the master project will be applied to the exported layers."
         )
-        options_layout.addWidget(self.update_symbology_checkbox)
+        existing_layout.addWidget(self.update_symbology_checkbox)
         
-        # Fix layer order checkbox
+        # Preserve layer filters checkbox (new)
+        self.preserve_layer_filters_checkbox = QCheckBox("Preserve Layer Filters")
+        self.preserve_layer_filters_checkbox.setChecked(True)  # Default to True
+        self.preserve_layer_filters_checkbox.setToolTip(
+            "If checked, existing layer filters in the child projects will be preserved.\n"
+            "If unchecked, filters from the master project will be applied."
+        )
+        existing_layout.addWidget(self.preserve_layer_filters_checkbox)
+        
+        existing_group.setLayout(existing_layout)
+        options_layout.addWidget(existing_group)
+        
+        # New Layer Handling sub-panel
+        new_group = QGroupBox("New Layer Handling")
+        new_layout = QVBoxLayout()
+        
+        # Fix layer order checkbox moved here
         self.fix_layer_order_checkbox = QCheckBox("Fix Layer Order")
         self.fix_layer_order_checkbox.setChecked(True)  # Default to True
         self.fix_layer_order_checkbox.setToolTip(
             "If checked, layers in the target project will be reordered to match the layer order\n"
             "from the master project. This applies to both new and existing layers."
         )
-        options_layout.addWidget(self.fix_layer_order_checkbox)
-        
+        new_layout.addWidget(self.fix_layer_order_checkbox)
+
+        # Add layer groups checkbox (new)
+        self.add_layer_groups_checkbox = QCheckBox("Add Layer Groups from Master")
+        self.add_layer_groups_checkbox.setChecked(True)  # Default to True
+        self.add_layer_groups_checkbox.setToolTip(
+            "If checked, layer groups from the master project will be replicated in the target projects.\n"
+            "Layers will be organized into the same groups as in the master project."
+        )
+        new_layout.addWidget(self.add_layer_groups_checkbox)
+
+        new_group.setLayout(new_layout)
+        options_layout.addWidget(new_group)
+
+        othersettings_group = QGroupBox("Other Settings")
+        othersettings_layout = QVBoxLayout()
+
+        # Create backups checkbox (new)
+        self.create_backups_checkbox = QCheckBox("Create Project Backups (MirrorProjectBackup folder)")
+        self.create_backups_checkbox.setChecked(True)  # Default to True
+        self.create_backups_checkbox.setToolTip(
+            "If checked, a backup copy of each target project will be created in a folder\n"
+            "'MirrorProjectBackup' next to the project file before it is modified."
+        )
+        othersettings_layout.addWidget(self.create_backups_checkbox)
+
+        othersettings_group.setLayout(othersettings_layout)              
+        options_layout.addWidget(othersettings_group)
+
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
@@ -233,16 +365,6 @@ class MirrorProjectDialog(QDialog):
         self.selected_layers = [item.data(Qt.UserRole) for item in selected_items]
         self.selected_count_label.setText(f"Selected: {len(self.selected_layers)} layers")
     
-    def on_skip_same_name_changed(self):
-        """Handle skip same name checkbox state change."""
-        # Enable/disable the replace data source option based on skip same name state
-        is_skip_checked = self.skip_same_name_checkbox.isChecked()
-        self.replace_data_source_checkbox.setEnabled(not is_skip_checked)
-        
-        # If skip is checked, uncheck replace data source
-        if is_skip_checked:
-            self.replace_data_source_checkbox.setChecked(False)
-    
     def select_all_layers(self):
         """Select all layers in the list."""
         self.layer_list.selectAll()
@@ -250,6 +372,66 @@ class MirrorProjectDialog(QDialog):
     def deselect_all_layers(self):
         """Deselect all layers in the list."""
         self.layer_list.clearSelection()
+    
+    def load_master_project_themes(self):
+        """Load all map themes from the current master project."""
+        project = QgsProject.instance()
+        theme_collection = project.mapThemeCollection()
+        
+        self.theme_list.clear()
+        
+        theme_names = theme_collection.mapThemes()
+        for theme_name in theme_names:
+            self.theme_list.addItem(theme_name)
+        
+        if not theme_names:
+            # Add a placeholder if no themes exist
+            item = self.theme_list.addItem("(No map themes in master project)")
+            self.theme_list.item(0).setFlags(Qt.NoItemFlags)  # Make it unselectable
+
+    def on_theme_selection_changed(self):
+        """Handle theme selection changes."""
+        selected_items = self.theme_list.selectedItems()
+        self.selected_themes = [item.text() for item in selected_items]
+        self.selected_themes_count_label.setText(f"Selected: {len(self.selected_themes)} themes")
+    
+    def select_all_themes(self):
+        """Select all themes in the list."""
+        self.theme_list.selectAll()
+    
+    def deselect_all_themes(self):
+        """Deselect all themes in the list."""
+        self.theme_list.clearSelection()
+    
+    def load_master_project_layouts(self):
+        """Load all print layouts from the current master project."""
+        project = QgsProject.instance()
+        layout_manager = project.layoutManager()
+        
+        self.layout_list.clear()
+        
+        layouts = layout_manager.layouts()
+        for layout in layouts:
+            self.layout_list.addItem(layout.name())
+        
+        if not layouts:
+            # Add a placeholder if no layouts exist
+            self.layout_list.addItem("(No print layouts in master project)")
+            self.layout_list.item(0).setFlags(Qt.NoItemFlags)  # Make it unselectable
+
+    def on_layout_selection_changed(self):
+        """Handle layout selection changes."""
+        selected_items = self.layout_list.selectedItems()
+        self.selected_layouts = [item.text() for item in selected_items]
+        self.selected_layouts_count_label.setText(f"Selected: {len(self.selected_layouts)} layouts")
+    
+    def select_all_layouts(self):
+        """Select all layouts in the list."""
+        self.layout_list.selectAll()
+    
+    def deselect_all_layouts(self):
+        """Deselect all layouts in the list."""
+        self.layout_list.clearSelection()
     
     def add_target_projects(self):
         """Open file dialog to add target project files."""
@@ -267,11 +449,11 @@ class MirrorProjectDialog(QDialog):
         if project_files:
             for project_file in project_files:
                 # Don't add the master project itself
-                if project_file == master_project_path:
+                if project_file == self.master_project_path:
                     QMessageBox.warning(
                         self,
                         "Invalid Selection",
-                        "Cannot add the master project as a target project."
+                        f"Cannot add the master project as a target project.\n\nMaster project:\n{self.master_project_path}"
                     )
                     continue
                 
@@ -279,9 +461,15 @@ class MirrorProjectDialog(QDialog):
                 if project_file not in self.target_projects:
                     self.target_projects.append(project_file)
                     self.projects_list.addItem(project_file)
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Already Added",
+                        f"This project is already in the target list:\n\n{project_file}"
+                    )
             
             self.update_projects_count()
-    
+
     def remove_selected_projects(self):
         """Remove selected projects from the list."""
         selected_items = self.projects_list.selectedItems()
@@ -321,13 +509,17 @@ class MirrorProjectDialog(QDialog):
         """Get the list of selected layer IDs."""
         return self.selected_layers
     
+    def get_selected_themes(self):
+        """Get the list of selected theme names."""
+        return self.selected_themes
+    
+    def get_selected_layouts(self):
+        """Get the list of selected layout names."""
+        return self.selected_layouts
+
     def get_target_projects(self):
         """Get the list of target project file paths."""
         return self.target_projects
-    
-    def get_skip_same_name(self):
-        """Get whether to skip layers with same name."""
-        return self.skip_same_name_checkbox.isChecked()
     
     def get_replace_data_source(self):
         """Get whether to replace data source for layers with same name."""
@@ -340,6 +532,58 @@ class MirrorProjectDialog(QDialog):
     def get_fix_layer_order(self):
         """Get whether to fix layer order."""
         return self.fix_layer_order_checkbox.isChecked()
+
+    def get_add_layer_groups(self):
+        """Get whether to add layer groups from master project."""
+        return self.add_layer_groups_checkbox.isChecked()
+
+    def get_create_backups(self):
+        """Get whether to create backups of target projects before editing."""
+        return self.create_backups_checkbox.isChecked()
+
+    def get_preserve_layer_filters(self):
+        """Get whether to preserve layer filters in child projects."""
+        return self.preserve_layer_filters_checkbox.isChecked()
+
+    def append_console(self, message: str):
+        """Append a line to the console (thread-safe-ish for single-threaded use)."""
+        try:
+            # Ensure message is string and add newline
+            self.console.append(str(message))
+        except Exception:
+            pass
+
+    def clear_console(self):
+        """Clear the console."""
+        try:
+            self.console.clear()
+        except Exception:
+            pass
+
+    def display_results(self, results: dict):
+        """
+        Display the export results dict in the console in a readable format.
+        """
+        try:
+            self.append_console("\n=== Mirror Project - Results ===")
+            self.append_console(f"Success: {results.get('success', False)}")
+            self.append_console(f"Projects updated: {results.get('projects_updated', 0)}")
+            self.append_console(f"Layers exported: {results.get('layers_exported', 0)}")
+            self.append_console(f"Themes exported: {results.get('themes_exported', 0)}")
+            self.append_console(f"Layouts exported: {results.get('layouts_exported', 0)}")
+            warnings = results.get('warnings', [])
+            errors = results.get('errors', [])
+            if warnings:
+                self.append_console(f"\nWarnings ({len(warnings)}):")
+                for w in warnings:
+                    self.append_console(f"  - {w}")
+            if errors:
+                self.append_console(f"\nErrors ({len(errors)}):")
+                for e in errors:
+                    self.append_console(f"  - {e}")
+            self.append_console("\n=== End Results ===\n")
+        except Exception:
+            pass
 
     def accept(self):
         """Validate and accept the dialog."""
@@ -360,3 +604,61 @@ class MirrorProjectDialog(QDialog):
             return
         
         super().accept()
+
+    def set_export_callback(self, callback):
+        """Register a callback that performs the export. The callback will be called when OK is pressed.
+        The callback should accept a single argument: a function to use as a progress callback: (message, percent)."""
+        self._export_callback = callback
+
+    def _on_start_export(self):
+        """Handler for OK button. Validate inputs then call the registered export callback without closing the dialog."""
+        if self._export_running:
+            return
+
+        # Validate selections (same checks as previous accept)
+        if not self.selected_layers:
+            QMessageBox.warning(self, "No Layers Selected", "Please select at least one layer to export.")
+            return
+        if not self.target_projects:
+            QMessageBox.warning(self, "No Target Projects", "Please add at least one target project.")
+            return
+
+        # Double-check that master project is not in the target list
+        if self.master_project_path in self.target_projects:
+            QMessageBox.critical(
+                self,
+                "Invalid Configuration",
+                f"The master project cannot be in the target projects list.\n\nMaster project:\n{self.master_project_path}\n\nPlease remove it from the target list."
+            )
+            return
+
+        if not self._export_callback:
+            QMessageBox.critical(self, "No Export Callback", "No export callback has been registered.")
+            return
+
+        # Run export (synchronous) but keep dialog open. Disable OK to prevent re-entry.
+        try:
+            self._export_running = True
+            self.button_box.button(QDialogButtonBox.Ok).setEnabled(False)
+            # Clear console and start
+            self.clear_console()
+            self.append_console("Starting mirror export...\n")
+            # Call the plugin-provided callback; it must accept (append_log, progress_callback) or similar.
+            # We pass two helpers: append_console and a progress updater lambda
+            def progress_cb(message, percent):
+                # Ensure message is visible in console as well
+                try:
+                    self.append_console(f"[{percent}%] {message}")
+                except Exception:
+                    pass
+
+            # Call export callback (plugin is responsible for catching exceptions and writing results)
+            self._export_callback(progress_cb)
+
+        finally:
+            # Re-enable OK
+            try:
+                self.button_box.button(QDialogButtonBox.Ok).setEnabled(True)
+            except Exception:
+                pass
+            self._export_running = False
