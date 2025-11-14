@@ -230,7 +230,7 @@ class MirrorProjectDialog(QDialog):
         )
         existing_layout.addWidget(self.update_symbology_checkbox)
         
-        # Preserve layer filters checkbox (new)
+        # Preserve layer filters checkbox
         self.preserve_layer_filters_checkbox = QCheckBox("Preserve Layer Filters")
         self.preserve_layer_filters_checkbox.setChecked(True)  # Default to True
         self.preserve_layer_filters_checkbox.setToolTip(
@@ -238,6 +238,16 @@ class MirrorProjectDialog(QDialog):
             "If unchecked, filters from the master project will be applied."
         )
         existing_layout.addWidget(self.preserve_layer_filters_checkbox)
+        
+        # Preserve auxiliary tables checkbox (new)
+        self.preserve_auxiliary_tables_checkbox = QCheckBox("Preserve Auxiliary Tables (Label Drags, etc.)")
+        self.preserve_auxiliary_tables_checkbox.setChecked(True)  # Default to True
+        self.preserve_auxiliary_tables_checkbox.setToolTip(
+            "If checked, auxiliary data in child projects will be preserved.\n"
+            "This includes label drag positions, custom label rotations, and other manually adjusted properties.\n"
+            "If unchecked, auxiliary data from the master project will be applied."
+        )
+        existing_layout.addWidget(self.preserve_auxiliary_tables_checkbox)
         
         existing_group.setLayout(existing_layout)
         options_layout.addWidget(existing_group)
@@ -544,6 +554,10 @@ class MirrorProjectDialog(QDialog):
     def get_preserve_layer_filters(self):
         """Get whether to preserve layer filters in child projects."""
         return self.preserve_layer_filters_checkbox.isChecked()
+
+    def get_preserve_auxiliary_tables(self):
+        """Get whether to preserve auxiliary tables in child projects."""
+        return self.preserve_auxiliary_tables_checkbox.isChecked()
 
     def append_console(self, message: str):
         """Append a line to the console (thread-safe-ish for single-threaded use)."""

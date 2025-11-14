@@ -43,7 +43,8 @@ class MirrorProjectLogic:
         add_layer_groups: bool = True,
         selected_themes: list = None,
         selected_layouts: list = None,
-        preserve_layer_filters: bool = True
+        preserve_layer_filters: bool = True,
+        preserve_auxiliary_tables: bool = True  # NEW parameter
     ):
         """
         Export selected layers to target projects.
@@ -61,6 +62,7 @@ class MirrorProjectLogic:
             selected_themes: List of theme names to export
             selected_layouts: List of layout names to export
             preserve_layer_filters: Preserve existing layer filters in child projects
+            preserve_auxiliary_tables: Preserve auxiliary storage (label drags, etc.) in child projects
         
         Returns:
             dict: Results with success/error information
@@ -145,81 +147,90 @@ class MirrorProjectLogic:
                                 int((current_step / total_steps) * 100)
                             )
                         
-                        # FIRST: Check if layer exists and preserve filter BEFORE any operations
-                        existing_filter = None
+                        # Find if layer exists in target
                         existing_layer = MirrorProjectLogic._find_layer_by_name(
                             target_project, layer.name()
                         )
                         
-                        if existing_layer and preserve_layer_filters:
-                            try:
-                                if hasattr(existing_layer, 'subsetString'):
-                                    existing_filter = existing_layer.subsetString()
-                                    if existing_filter:
-                                        results['warnings'].append(
-                                            f"Captured existing filter for '{layer.name()}': {existing_filter}"
-                                        )
-                                    else:
-                                        results['warnings'].append(
-                                            f"Layer '{layer.name()}' exists but has no filter"
-                                        )
-                            except Exception as e:
-                                results['warnings'].append(
-                                    f"Could not read filter from '{layer.name()}': {str(e)}"
-                                )
-                        
-                        # Now handle the layer based on options
                         if existing_layer:
-                            if skip_same_name:
-                                results['warnings'].append(
-                                    f"Skipped '{layer.name()}' in {os.path.basename(project_path)} (already exists)"
-                                )
-                                continue
-                            elif replace_data_source:
-                                # Replace data source of existing layer
-                                if MirrorProjectLogic._replace_layer_data_source(
-                                    existing_layer, layer, update_symbology, existing_filter, preserve_layer_filters, results
+                            # Layer exists - update it in place (NEVER remove it)
+                            if replace_data_source:
+                                # Update data source AND symbology if requested
+                                if MirrorProjectLogic._update_layer_in_place(
+                                    existing_layer, 
+                                    layer, 
+                                    update_symbology,  # Pass the update_symbology flag
+                                    preserve_layer_filters,
+                                    preserve_auxiliary_tables,
+                                    results
                                 ):
                                     results['layers_exported'] += 1
                                     project_modified = True
                                 else:
                                     results['warnings'].append(
-                                        f"Failed to replace data source for '{layer.name()}' in {os.path.basename(project_path)}"
+                                        f"Failed to update layer '{layer.name()}' in {os.path.basename(project_path)}"
                                     )
-                                continue
                             else:
-                                # Remove existing layer and add new one
-                                target_project.removeMapLayer(existing_layer.id())
-                                results['warnings'].append(
-                                    f"Removed existing layer '{layer.name()}' to replace with new one"
-                                )
-                        
-                        # Clone and add the layer (with preserved filter if applicable)
-                        if MirrorProjectLogic._clone_layer_to_project(
-                            layer, target_project, update_symbology, results, existing_filter, preserve_layer_filters
-                        ):
-                            results['layers_exported'] += 1
-                            project_modified = True
+                                # Skip - layer exists and we're not replacing
+                                if skip_same_name:
+                                    results['warnings'].append(
+                                        f"Skipped '{layer.name()}' in {os.path.basename(project_path)} (already exists)"
+                                    )
+                                else:
+                                    # Layer exists but not configured to update - could optionally update symbology only
+                                    if update_symbology:
+                                        # Update only symbology without changing data source
+                                        if MirrorProjectLogic._update_symbology_only(
+                                            existing_layer,
+                                            layer,
+                                            preserve_layer_filters,
+                                            preserve_auxiliary_tables,
+                                            results
+                                        ):
+                                            results['warnings'].append(
+                                                f"Updated symbology for existing layer '{layer.name()}' in {os.path.basename(project_path)}"
+                                            )
+                                        else:
+                                            results['warnings'].append(
+                                                f"Failed to update symbology for '{layer.name()}' in {os.path.basename(project_path)}"
+                                            )
+                                    else:
+                                        results['warnings'].append(
+                                            f"Layer '{layer.name()}' already exists in {os.path.basename(project_path)} - not updated"
+                                        )
                         else:
-                            # Error details already added by _clone_layer_to_project
-                            pass
+                            # Layer doesn't exist - add it as new
+                            if MirrorProjectLogic._add_new_layer_to_project(
+                                layer, 
+                                target_project, 
+                                update_symbology, 
+                                results
+                            ):
+                                results['layers_exported'] += 1
+                                project_modified = True
+                            else:
+                                # Error already logged
+                                pass
                     
                     except Exception as layer_error:
                         results['errors'].append(
                             f"Error exporting layer '{layer.name()}' to {os.path.basename(project_path)}: {str(layer_error)}"
                         )
                 
-                # Fix layer order if requested (run after all layers are imported)
-                if fix_layer_order and project_modified:
+                # Fix layer order if requested (AFTER all layers are added)
+                if fix_layer_order:
                     if progress_callback:
-                        progress_callback(f"Fixing layer order in {os.path.basename(project_path)}", 
-                                        int((current_step / total_steps) * 100))
-                    if MirrorProjectLogic._fix_layer_order(target_project, master_layer_order, results, add_layer_groups, master_project):
-                        project_modified = True
-                        results['warnings'].append(f"Reordered layers in {os.path.basename(project_path)} to match master project")
-                    else:
-                        results['warnings'].append(f"Could not fix layer order in {os.path.basename(project_path)}")
-                
+                        progress_callback(
+                            f"Fixing layer order in {os.path.basename(project_path)}...", 
+                            int((current_step / total_steps) * 100)
+                        )
+                    MirrorProjectLogic._fix_layer_order(
+                        master_project, 
+                        target_project, 
+                        results,
+                        preserve_auxiliary_tables  # Pass the preserve flag
+                    )
+
                 # Export map themes if requested
                 if selected_themes:
                     if progress_callback:
@@ -274,13 +285,215 @@ class MirrorProjectLogic:
         return None
     
     @staticmethod
+    def _clone_auxiliary_storage(aux_layer, results: dict = None) -> dict:
+        """
+        Clone auxiliary storage data from a layer.
+        Returns a dict containing the auxiliary data that can be restored later.
+        
+        Args:
+            aux_layer: The QgsAuxiliaryLayer to clone
+            results: Optional results dict for messages
+        
+        Returns:
+            dict: Cloned auxiliary data or None if failed
+        """
+        try:
+            if not aux_layer:
+                if results:
+                    results['warnings'].append("DEBUG _clone_auxiliary_storage: aux_layer is None")
+                return None
+            
+            feature_count = aux_layer.featureCount()
+            if results:
+                results['warnings'].append(f"DEBUG _clone_auxiliary_storage: Feature count = {feature_count}")
+            
+            if feature_count == 0:
+                if results:
+                    results['warnings'].append("DEBUG _clone_auxiliary_storage: No features to clone (count=0)")
+                return None
+            
+            # Store auxiliary layer data
+            auxiliary_data = {
+                'features': [],
+                'fields': aux_layer.fields(),
+                'feature_count': feature_count
+            }
+            
+            if results:
+                results['warnings'].append(f"DEBUG _clone_auxiliary_storage: Fields = {[f.name() for f in aux_layer.fields()]}")
+            
+            # Copy all features from auxiliary layer
+            feature_list = list(aux_layer.getFeatures())
+            if results:
+                results['warnings'].append(f"DEBUG _clone_auxiliary_storage: Retrieved {len(feature_list)} features from iterator")
+            
+            for idx, feature in enumerate(feature_list):
+                attr_map = dict(feature.attributeMap())
+                auxiliary_data['features'].append(attr_map)
+                if results and idx < 3:  # Log first 3 features
+                    results['warnings'].append(f"DEBUG _clone_auxiliary_storage: Feature {idx}: {attr_map}")
+            
+            if results:
+                results['warnings'].append(f"DEBUG _clone_auxiliary_storage: Successfully cloned {len(auxiliary_data['features'])} features")
+            
+            return auxiliary_data
+        
+        except Exception as e:
+            if results:
+                results['warnings'].append(f"DEBUG _clone_auxiliary_storage: ERROR - {str(e)}")
+            print(f"Error cloning auxiliary storage: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    @staticmethod
+    def _restore_auxiliary_storage(layer, auxiliary_data: dict, results: dict = None) -> bool:
+        """
+        Restore auxiliary storage data to a layer.
+        
+        Args:
+            layer: The layer to restore auxiliary data to
+            auxiliary_data: Dict containing auxiliary data from _clone_auxiliary_storage
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Starting restore for layer '{layer.name()}'")
+            
+            if not auxiliary_data:
+                if results:
+                    results['warnings'].append("DEBUG _restore_auxiliary_storage: auxiliary_data is None")
+                return False
+            
+            if not auxiliary_data.get('features'):
+                if results:
+                    results['warnings'].append("DEBUG _restore_auxiliary_storage: No features in auxiliary_data")
+                return False
+            
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Restoring {len(auxiliary_data['features'])} features")
+            
+            # Get or create auxiliary layer
+            aux_layer = layer.auxiliaryLayer()
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Initial aux_layer = {aux_layer}")
+            
+            if not aux_layer:
+                # Create auxiliary layer if it doesn't exist
+                if results:
+                    results['warnings'].append("DEBUG _restore_auxiliary_storage: Attempting to create auxiliary layer")
+                
+                from qgis.core import QgsAuxiliaryStorage
+                project = layer.project()
+                if results:
+                    results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Layer project = {project}")
+                
+                if project:
+                    aux_storage = project.auxiliaryStorage()
+                    if results:
+                        results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Auxiliary storage = {aux_storage}")
+                    
+                    if aux_storage:
+                        layer_fields = layer.fields()
+                        if layer_fields.count() > 0:
+                            aux_layer = aux_storage.createAuxiliaryLayer(layer_fields[0], layer)
+                            if results:
+                                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Created aux_layer = {aux_layer}")
+                            
+                            if aux_layer:
+                                layer.setAuxiliaryLayer(aux_layer)
+                                if results:
+                                    results['warnings'].append("DEBUG _restore_auxiliary_storage: Set auxiliary layer on main layer")
+                        else:
+                            if results:
+                                results['warnings'].append("DEBUG _restore_auxiliary_storage: Layer has no fields")
+            
+            if not aux_layer:
+                if results:
+                    results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Could not create/get auxiliary layer for '{layer.name()}'")
+                return False
+            
+            # Clear existing auxiliary features
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Current aux layer feature count = {aux_layer.featureCount()}")
+            
+            aux_layer.startEditing()
+            all_feature_ids = list(aux_layer.allFeatureIds())
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Deleting {len(all_feature_ids)} existing features")
+            
+            aux_layer.deleteFeatures(all_feature_ids)
+            
+            # Restore features
+            from qgis.core import QgsFeature
+            added_count = 0
+            
+            for idx, feature_data in enumerate(auxiliary_data['features']):
+                feature = QgsFeature(aux_layer.fields())
+                
+                for field_name, value in feature_data.items():
+                    field_idx = aux_layer.fields().indexOf(field_name)
+                    if field_idx >= 0:
+                        feature.setAttribute(field_idx, value)
+                    elif results and idx < 3:
+                        results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Field '{field_name}' not found in aux layer")
+                
+                if aux_layer.addFeature(feature):
+                    added_count += 1
+                elif results and idx < 3:
+                    results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Failed to add feature {idx}")
+            
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Added {added_count} features to aux layer")
+            
+            commit_result = aux_layer.commitChanges()
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Commit result = {commit_result}")
+            
+            if not commit_result:
+                errors = aux_layer.commitErrors()
+                if results:
+                    results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Commit errors = {errors}")
+            
+            # Verify restoration
+            final_count = aux_layer.featureCount()
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: Final aux layer feature count = {final_count}")
+            
+            if final_count > 0:
+                if results:
+                    results['warnings'].append(
+                        f"✓ Restored {final_count} auxiliary features for '{layer.name()}'"
+                    )
+                return True
+            else:
+                if results:
+                    results['warnings'].append(
+                        f"✗ Auxiliary layer for '{layer.name()}' is empty after restore attempt"
+                    )
+                return False
+        
+        except Exception as e:
+            if results:
+                results['warnings'].append(f"DEBUG _restore_auxiliary_storage: EXCEPTION - {str(e)}")
+            print(f"Error restoring auxiliary storage: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
     def _clone_layer_to_project(
         source_layer: QgsMapLayer,
         target_project: QgsProject,
         copy_symbology: bool = True,
         results: dict = None,
         existing_filter: str = None,
-        preserve_layer_filters: bool = True
+        preserve_layer_filters: bool = True,
+        existing_auxiliary_storage: dict = None,
+        preserve_auxiliary_tables: bool = True
     ) -> bool:
         """
         Clone a layer and add it to the target project.
@@ -292,6 +505,8 @@ class MirrorProjectLogic:
             results: Optional results dict to append error messages to
             existing_filter: Previously captured filter to restore
             preserve_layer_filters: Whether to preserve the filter
+            existing_auxiliary_storage: Previously captured auxiliary data to restore
+            preserve_auxiliary_tables: Whether to preserve auxiliary storage
         
         Returns:
             bool: True if successful
@@ -335,41 +550,7 @@ class MirrorProjectLogic:
             # Set layer name
             cloned_layer.setName(source_layer.name())
             
-            # Copy symbology if requested
-            if copy_symbology:
-                if source_layer.type() == QgsMapLayer.VectorLayer:
-                    # Copy renderer
-                    if source_layer.renderer():
-                        try:
-                            cloned_layer.setRenderer(source_layer.renderer().clone())
-                        except Exception as e:
-                            error_msg = f"Warning for '{source_layer.name()}': Could not copy renderer - {str(e)}"
-                            if results:
-                                results['warnings'].append(error_msg)
-                            print(error_msg)
-                    
-                    # Copy labeling
-                    if source_layer.labeling():
-                        try:
-                            cloned_layer.setLabeling(source_layer.labeling().clone())
-                            cloned_layer.setLabelsEnabled(source_layer.labelsEnabled())
-                        except Exception as e:
-                            error_msg = f"Warning for '{source_layer.name()}': Could not copy labeling - {str(e)}"
-                            if results:
-                                results['warnings'].append(error_msg)
-                            print(error_msg)
-                elif source_layer.type() == QgsMapLayer.RasterLayer:
-                    # Copy renderer for raster
-                    if source_layer.renderer():
-                        try:
-                            cloned_layer.setRenderer(source_layer.renderer().clone())
-                        except Exception as e:
-                            error_msg = f"Warning for '{source_layer.name()}': Could not copy raster renderer - {str(e)}"
-                            if results:
-                                results['warnings'].append(error_msg)
-                            print(error_msg)
-            
-            # Add layer to target project
+            # Add layer to target project FIRST (before copying symbology)
             if not target_project.addMapLayer(cloned_layer, False):
                 error_msg = f"Failed to export '{source_layer.name()}': Could not add layer to target project"
                 if results:
@@ -388,7 +569,53 @@ class MirrorProjectLogic:
                 print(error_msg)
                 # Not a fatal error if layer is already in project
             
-            # Apply the preserved filter AFTER the layer is fully added
+            # Copy symbology if requested (AFTER layer is in project)
+            if copy_symbology:
+                if results:
+                    results['warnings'].append(f"DEBUG: Copying symbology for '{source_layer.name()}'")
+                
+                if source_layer.type() == QgsMapLayer.VectorLayer:
+                    # Copy renderer
+                    if source_layer.renderer():
+                        try:
+                            cloned_layer.setRenderer(source_layer.renderer().clone())
+                            if results:
+                                results['warnings'].append(f"DEBUG: Copied renderer for '{source_layer.name()}'")
+                        except Exception as e:
+                            error_msg = f"Warning for '{source_layer.name()}': Could not copy renderer - {str(e)}"
+                            if results:
+                                results['warnings'].append(error_msg)
+                            print(error_msg)
+                    
+                    # Copy labeling (always copy, auxiliary preservation will be handled differently)
+                    if source_layer.labeling():
+                        try:
+                            if results:
+                                results['warnings'].append(f"DEBUG: About to copy labeling for '{source_layer.name()}'")
+                            
+                            cloned_layer.setLabeling(source_layer.labeling().clone())
+                            cloned_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                            
+                            if results:
+                                results['warnings'].append(f"DEBUG: Copied labeling for '{source_layer.name()}'")
+                        except Exception as e:
+                            error_msg = f"Warning for '{source_layer.name()}': Could not copy labeling - {str(e)}"
+                            if results:
+                                results['warnings'].append(error_msg)
+                            print(error_msg)
+                
+                elif source_layer.type() == QgsMapLayer.RasterLayer:
+                    # Copy renderer for raster
+                    if source_layer.renderer():
+                        try:
+                            cloned_layer.setRenderer(source_layer.renderer().clone())
+                        except Exception as e:
+                            error_msg = f"Warning for '{source_layer.name()}': Could not copy raster renderer - {str(e)}"
+                            if results:
+                                results['warnings'].append(error_msg)
+                            print(error_msg)
+            
+            # Apply the preserved filter AFTER the layer is fully configured
             if existing_filter and preserve_layer_filters:
                 try:
                     if hasattr(cloned_layer, 'setSubsetString'):
@@ -403,21 +630,16 @@ class MirrorProjectLogic:
                                 results['warnings'].append(
                                     f"✗ Failed to restore filter for '{source_layer.name()}': setSubsetString returned False"
                                 )
-                    else:
-                        if results:
-                            results['warnings'].append(
-                                f"Layer '{source_layer.name()}' does not support filters (not a vector layer)"
-                            )
                 except Exception as e:
                     error_msg = f"✗ Exception restoring filter for '{source_layer.name()}': {str(e)}"
                     if results:
                         results['warnings'].append(error_msg)
                     print(error_msg)
-            elif preserve_layer_filters and not existing_filter:
+            
+            # Restore auxiliary storage if we had preserved it (will be handled differently in future)
+            if existing_auxiliary_storage and preserve_auxiliary_tables:
                 if results:
-                    results['warnings'].append(
-                        f"No filter to preserve for '{source_layer.name()}'"
-                    )
+                    results['warnings'].append(f"DEBUG: Auxiliary preservation requested for '{source_layer.name()}' but not yet implemented correctly")
             
             return True
         
@@ -435,6 +657,8 @@ class MirrorProjectLogic:
         update_symbology: bool = False,
         existing_filter: str = None,
         preserve_layer_filters: bool = True,
+        existing_auxiliary_storage: dict = None,
+        preserve_auxiliary_tables: bool = True,
         results: dict = None
     ) -> bool:
         """
@@ -446,6 +670,8 @@ class MirrorProjectLogic:
             update_symbology: Whether to also update symbology
             existing_filter: Previously captured filter to restore
             preserve_layer_filters: Whether to preserve the filter
+            existing_auxiliary_storage: Previously captured auxiliary data to restore
+            preserve_auxiliary_tables: Whether to preserve auxiliary storage
             results: Optional results dict for messages
         
         Returns:
@@ -459,7 +685,35 @@ class MirrorProjectLogic:
             # Set the new data source
             existing_layer.setDataSource(new_source, existing_layer.name(), new_provider)
             
-            # Restore the preserved filter AFTER data source update
+            # Update symbology if requested
+            if update_symbology:
+                if results:
+                    results['warnings'].append(f"DEBUG: Updating symbology for '{existing_layer.name()}'")
+                
+                if source_layer.type() == QgsMapLayer.VectorLayer:
+                    # Copy renderer
+                    if source_layer.renderer():
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+                        if results:
+                            results['warnings'].append(f"DEBUG: Updated renderer for '{existing_layer.name()}'")
+                    
+                    # Copy labeling (always copy, auxiliary preservation will be handled differently)
+                    if source_layer.labeling():
+                        if results:
+                            results['warnings'].append(f"DEBUG: About to update labeling for '{existing_layer.name()}'")
+                        
+                        existing_layer.setLabeling(source_layer.labeling().clone())
+                        existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                        
+                        if results:
+                            results['warnings'].append(f"DEBUG: Updated labeling for '{existing_layer.name()}'")
+                
+                elif source_layer.type() == QgsMapLayer.RasterLayer:
+                    # Copy renderer for raster
+                    if source_layer.renderer():
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+            
+            # Restore the preserved filter AFTER data source and symbology updates
             if existing_filter and preserve_layer_filters:
                 try:
                     if hasattr(existing_layer, 'setSubsetString'):
@@ -480,21 +734,10 @@ class MirrorProjectLogic:
                         results['warnings'].append(error_msg)
                     print(error_msg)
             
-            # Update symbology if requested
-            if update_symbology:
-                if source_layer.type() == QgsMapLayer.VectorLayer:
-                    # Copy renderer
-                    if source_layer.renderer():
-                        existing_layer.setRenderer(source_layer.renderer().clone())
-                    
-                    # Copy labeling
-                    if source_layer.labeling():
-                        existing_layer.setLabeling(source_layer.labeling().clone())
-                        existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
-                elif source_layer.type() == QgsMapLayer.RasterLayer:
-                    # Copy renderer for raster
-                    if source_layer.renderer():
-                        existing_layer.setRenderer(source_layer.renderer().clone())
+            # Auxiliary storage restoration (will be handled differently in future)
+            if existing_auxiliary_storage and preserve_auxiliary_tables:
+                if results:
+                    results['warnings'].append(f"DEBUG: Auxiliary preservation requested for '{existing_layer.name()}' but not yet implemented correctly")
             
             return True
         
@@ -537,114 +780,176 @@ class MirrorProjectLogic:
     
     @staticmethod
     def _fix_layer_order(
+        master_project: QgsProject,
         target_project: QgsProject,
-        master_layer_order: dict,
         results: dict = None,
-        add_layer_groups: bool = True,
-        master_project: QgsProject = None
-    ) -> bool:
+        preserve_auxiliary_tables: bool = True
+    ):
         """
-        Fix the layer order in the target project to match the master project.
-        Also replicates group structure if requested.
+        Reorder layers and groups in target project to match master project structure.
+        Creates groups as needed and positions layers correctly within them.
         
         Args:
-            target_project: The project to fix layer order in
-            master_layer_order: Complete layer order map from master project
-            results: Optional results dict to append messages to
-            add_layer_groups: Whether to add layer groups from master project
-            master_project: The master project to copy groups from
-        
-        Returns:
-            bool: True if successful
+            master_project: The master project
+            target_project: The target project to update
+            results: Optional results dict for messages
+            preserve_auxiliary_tables: Not used - layers are never removed
         """
         try:
+            if results:
+                results['warnings'].append("Replicating layer tree structure from master project...")
+            
+            # Get the master project's layer tree structure
+            master_root = master_project.layerTreeRoot()
             target_root = target_project.layerTreeRoot()
             
-            # Build a map of master project layer tree structure
-            if add_layer_groups and master_project:
-                # Get the complete layer tree structure from master
-                master_structure = MirrorProjectLogic._get_layer_tree_structure(master_project)
+            # Build a map of target layers by name for quick lookup
+            target_layers = {}
+            for layer in target_project.mapLayers().values():
+                target_layers[layer.name()] = layer
+            
+            # Recursive function to replicate structure
+            def replicate_tree_node(master_node, target_parent):
+                """
+                Recursively replicate a master tree node (group or layer) into the target parent.
                 
-                # Replicate the group structure and move layers into correct groups
-                if MirrorProjectLogic._replicate_structure_and_order(
-                    master_structure, 
-                    target_project, 
-                    master_layer_order, 
-                    results
-                ):
-                    if results:
-                        results['warnings'].append("Replicated layer groups and order from master project")
-                    return True
-                else:
-                    if results:
-                        results['warnings'].append("Failed to fully replicate master project structure")
-                    return False
+                Args:
+                    master_node: The master node to replicate
+                    target_parent: The target parent node to add to
+                """
+                for child in master_node.children():
+                    if isinstance(child, QgsLayerTreeGroup):
+                        # It's a group - find or create it in target
+                        group_name = child.name()
+                        target_group = target_parent.findGroup(group_name)
+                        
+                        if not target_group:
+                            # Group doesn't exist - create it
+                            target_group = target_parent.addGroup(group_name)
+                            if results:
+                                parent_name = target_parent.name() if isinstance(target_parent, QgsLayerTreeGroup) else "root"
+                                results['warnings'].append(f"Created group '{group_name}' in '{parent_name}'")
+                        
+                        # Recursively replicate children of this group
+                        replicate_tree_node(child, target_group)
+                    
+                    elif isinstance(child, QgsLayerTreeLayer):
+                        # It's a layer - find it in target and move/add it
+                        master_layer = child.layer()
+                        if not master_layer:
+                            continue
+                        
+                        layer_name = master_layer.name()
+                        
+                        # Check if this layer exists in target project
+                        if layer_name not in target_layers:
+                            if results:
+                                results['warnings'].append(f"Layer '{layer_name}' not in target project, skipping position")
+                            continue
+                        
+                        target_layer = target_layers[layer_name]
+                        
+                        # Find this layer's current node in target tree
+                        existing_node = target_root.findLayer(target_layer.id())
+                        
+                        if existing_node:
+                            # Layer exists somewhere in tree - need to move it
+                            current_parent = existing_node.parent()
+                            
+                            if current_parent != target_parent:
+                                # Layer is in wrong parent - move it
+                                cloned_node = existing_node.clone()
+                                current_parent.removeChildNode(existing_node)
+                                target_parent.addChildNode(cloned_node)
+                                
+                                if results:
+                                    current_parent_name = current_parent.name() if isinstance(current_parent, QgsLayerTreeGroup) else "root"
+                                    target_parent_name = target_parent.name() if isinstance(target_parent, QgsLayerTreeGroup) else "root"
+                                    results['warnings'].append(
+                                        f"Moved layer '{layer_name}' from '{current_parent_name}' to '{target_parent_name}'"
+                                    )
+                            else:
+                                # Layer is in correct parent, but might need reordering within parent
+                                # We'll handle order in a second pass
+                                pass
             
-            # Fallback: simple reordering without groups (original logic)
-            # Build a list of layers in target project that exist in master order
-            layers_to_order = []
-            for layer_id, layer in target_project.mapLayers().items():
-                if layer and layer.name() in master_layer_order:
-                    layers_to_order.append((layer.name(), master_layer_order[layer.name()]))
+            # First pass: replicate structure (groups and layer parent assignments)
+            replicate_tree_node(master_root, target_root)
             
-            layers_to_order.sort(key=lambda x: x[1])
+            # Second pass: fix ordering within each group/parent
+            def fix_ordering(master_node, target_node):
+                """
+                Fix the order of children in target_node to match master_node.
+                
+                Args:
+                    master_node: The master node to match order from
+                    target_node: The target node to reorder
+                """
+                master_children = master_node.children()
+                target_children_map = {}
+                
+                # Build map of target children by name/layer
+                for target_child in target_node.children():
+                    if isinstance(target_child, QgsLayerTreeGroup):
+                        target_children_map[f"group:{target_child.name()}"] = target_child
+                    elif isinstance(target_child, QgsLayerTreeLayer):
+                        if target_child.layer():
+                            target_children_map[f"layer:{target_child.layer().name()}"] = target_child
+                
+                # Reorder to match master
+                for index, master_child in enumerate(master_children):
+                    if isinstance(master_child, QgsLayerTreeGroup):
+                        key = f"group:{master_child.name()}"
+                        if key in target_children_map:
+                            target_child = target_children_map[key]
+                            current_index = target_node.children().index(target_child)
+                            
+                            if current_index != index:
+                                # Move to correct position
+                                cloned = target_child.clone()
+                                target_node.removeChildNode(target_child)
+                                target_node.insertChildNode(index, cloned)
+                                
+                                if results:
+                                    parent_name = target_node.name() if isinstance(target_node, QgsLayerTreeGroup) else "root"
+                                    results['warnings'].append(
+                                        f"Reordered group '{master_child.name()}' to position {index} in '{parent_name}'"
+                                    )
+                        
+                        # Recursively fix ordering within this group
+                        fix_ordering(master_child, target_children_map[key])
+                    
+                    elif isinstance(master_child, QgsLayerTreeLayer):
+                        if master_child.layer():
+                            key = f"layer:{master_child.layer().name()}"
+                            if key in target_children_map:
+                                target_child = target_children_map[key]
+                                current_index = target_node.children().index(target_child)
+                                
+                                if current_index != index:
+                                    # Move to correct position
+                                    cloned = target_child.clone()
+                                    target_node.removeChildNode(target_child)
+                                    target_node.insertChildNode(index, cloned)
+                                    
+                                    if results:
+                                        parent_name = target_node.name() if isinstance(target_node, QgsLayerTreeGroup) else "root"
+                                        results['warnings'].append(
+                                            f"Reordered layer '{master_child.layer().name()}' to position {index} in '{parent_name}'"
+                                        )
             
-            if not layers_to_order:
-                if results:
-                    results['warnings'].append("No layers to reorder (no matching layer names found)")
-                return True
+            # Apply ordering
+            fix_ordering(master_root, target_root)
             
             if results:
-                results['warnings'].append(f"Reordering {len(layers_to_order)} layers (no groups)")
-            
-            # Move each layer to root in correct order
-            for layer_name, desired_order in layers_to_order:
-                try:
-                    layer = MirrorProjectLogic._find_layer_by_name(target_project, layer_name)
-                    if not layer:
-                        continue
-                    
-                    layer_tree_layer = target_root.findLayer(layer.id())
-                    if not layer_tree_layer:
-                        continue
-                    
-                    parent = layer_tree_layer.parent()
-                    if not parent:
-                        parent = target_root
-                    
-                    current_index = parent.children().index(layer_tree_layer)
-                    
-                    # Calculate insertion index at root
-                    insertion_index = 0
-                    for i, child in enumerate(target_root.children()):
-                        if isinstance(child, QgsLayerTreeLayer):
-                            child_layer = child.layer()
-                            if child_layer and child_layer.name() in master_layer_order:
-                                child_order = master_layer_order[child_layer.name()]
-                                if child_order < desired_order:
-                                    insertion_index = i + 1
-                                else:
-                                    break
-                    
-                    if parent != target_root or current_index != insertion_index:
-                        cloned_node = layer_tree_layer.clone()
-                        parent.removeChildNode(layer_tree_layer)
-                        target_root.insertChildNode(insertion_index, cloned_node)
-                
-                except Exception as layer_err:
-                    error_msg = f"Error reordering layer '{layer_name}': {str(layer_err)}"
-                    if results:
-                        results['warnings'].append(error_msg)
-                    print(error_msg)
-            
-            return True
+                results['warnings'].append("✓ Layer tree structure and order synchronized with master project")
         
         except Exception as e:
-            error_msg = f"Error fixing layer order: {e}"
             if results:
-                results['warnings'].append(error_msg)
-            print(error_msg)
-            return False
+                results['warnings'].append(f"Error fixing layer order: {str(e)}")
+            print(f"Error fixing layer order: {e}")
+            import traceback
+            traceback.print_exc()
 
     @staticmethod
     def _get_layer_tree_structure(project: QgsProject) -> dict:
@@ -1003,3 +1308,467 @@ class MirrorProjectLogic:
                 results['errors'].append(error_msg)
             print(error_msg)
             return layouts_exported
+
+    @staticmethod
+    def _update_layer_in_place(
+        existing_layer: QgsMapLayer,
+        source_layer: QgsMapLayer,
+        update_symbology: bool,
+        preserve_layer_filters: bool,
+        preserve_auxiliary_tables: bool,
+        results: dict = None
+    ) -> bool:
+        """
+        Update an existing layer in place WITHOUT removing it from the project.
+        This preserves auxiliary data and layer tree position.
+        
+        Args:
+            existing_layer: The existing layer in the target project
+            source_layer: The source layer from master project
+            update_symbology: Whether to update symbology
+            preserve_layer_filters: Whether to preserve existing filters
+            preserve_auxiliary_tables: Whether to preserve auxiliary data
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Preserve filter if requested
+            existing_filter = None
+            if preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'subsetString'):
+                        existing_filter = existing_layer.subsetString()
+                        if existing_filter and results:
+                            results['warnings'].append(
+                                f"Preserving filter for '{existing_layer.name()}': {existing_filter}"
+                            )
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Could not read filter: {str(e)}")
+            
+            # Update data source
+            new_source = source_layer.source()
+            new_provider = source_layer.providerType()
+            existing_layer.setDataSource(new_source, existing_layer.name(), new_provider)
+            
+            if results:
+                results['warnings'].append(f"Updated data source for '{existing_layer.name()}'")
+            
+            # Update symbology if requested
+            if update_symbology:
+                if source_layer.type() == QgsMapLayer.VectorLayer:
+                    # Copy renderer
+                    if source_layer.renderer():
+                        try:
+                            existing_layer.setRenderer(source_layer.renderer().clone())
+                            if results:
+                                results['warnings'].append(f"Updated renderer for '{existing_layer.name()}'")
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not update renderer: {str(e)}")
+                    
+                    # Copy labeling
+                    if source_layer.labeling():
+                        try:
+                            existing_layer.setLabeling(source_layer.labeling().clone())
+                            existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                            if results:
+                                results['warnings'].append(f"Updated labeling for '{existing_layer.name()}'")
+                            
+                            # Restore data-defined overrides for auxiliary data
+                            if preserve_auxiliary_tables:
+                                MirrorProjectLogic._restore_labeling_auxiliary_overrides(
+                                    existing_layer,
+                                    results
+                                )
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not update labeling: {str(e)}")
+                
+                elif source_layer.type() == QgsMapLayer.RasterLayer:
+                    # Copy renderer for raster
+                    if source_layer.renderer():
+                        try:
+                            existing_layer.setRenderer(source_layer.renderer().clone())
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not update raster renderer: {str(e)}")
+            
+            # Restore filter if we preserved it
+            if existing_filter and preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'setSubsetString'):
+                        success = existing_layer.setSubsetString(existing_filter)
+                        if success and results:
+                            results['warnings'].append(f"Restored filter for '{existing_layer.name()}'")
+                        elif not success and results:
+                            results['warnings'].append(f"Failed to restore filter for '{existing_layer.name()}'")
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Error restoring filter: {str(e)}")
+            
+            # Verify auxiliary data is still present (if it was there before)
+            if preserve_auxiliary_tables:
+                try:
+                    aux_layer = existing_layer.auxiliaryLayer()
+                    if aux_layer and aux_layer.featureCount() > 0:
+                        if results:
+                            results['warnings'].append(
+                                f"✓ Auxiliary data preserved for '{existing_layer.name()}' "
+                                f"({aux_layer.featureCount()} features)"
+                            )
+                    elif results:
+                        results['warnings'].append(
+                            f"No auxiliary data found for '{existing_layer.name()}' after update"
+                        )
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Error checking auxiliary data: {str(e)}")
+            
+            return True
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error updating layer in place: {str(e)}")
+            print(f"Error updating layer in place: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def _restore_labeling_auxiliary_overrides(
+        layer: QgsVectorLayer,
+        results: dict = None
+    ):
+        """
+        Restore data-defined overrides for labeling properties that connect to auxiliary storage.
+        This reconnects label position, rotation, and other manually adjusted properties to the
+        auxiliary storage fields after labeling configuration has been updated.
+        
+        Args:
+            layer: The vector layer to restore overrides for
+            results: Optional results dict for messages
+        """
+        try:
+            from qgis.core import QgsPalLayerSettings, QgsProperty
+            
+            # Get the auxiliary layer
+            aux_layer = layer.auxiliaryLayer()
+            if not aux_layer:
+                if results:
+                    results['warnings'].append(f"  ↳ No auxiliary layer found for '{layer.name()}' - cannot restore overrides")
+                return
+            
+            # Check if auxiliary layer has any features
+            if aux_layer.featureCount() == 0:
+                if results:
+                    results['warnings'].append(f"  ↳ Auxiliary layer for '{layer.name()}' has no features - no overrides to restore")
+                return
+            
+            # Get the labeling configuration
+            labeling = layer.labeling()
+            if not labeling:
+                if results:
+                    results['warnings'].append(f"  ↳ No labeling configuration for '{layer.name()}'")
+                return
+            
+            # Get label settings (assuming simple labeling - not rule-based)
+            settings = None
+            if hasattr(labeling, 'settings'):
+                settings = labeling.settings()
+            
+            if not settings:
+                # Try to get settings for rule-based or other labeling types
+                if hasattr(labeling, 'type') and labeling.type() == 'simple':
+                    settings = labeling.settings()
+            
+            if not settings:
+                if results:
+                    results['warnings'].append(f"  ↳ Could not get label settings for '{layer.name()}'")
+                return
+            
+            # Build a map of layer fields (which includes the joined auxiliary fields with prefix)
+            layer_fields = {}
+            for field in layer.fields():
+                layer_fields[field.name().lower()] = field.name()
+            
+            if results:
+                aux_field_names = [f for f in layer_fields.keys() if 'auxiliary_storage' in f]
+                results['warnings'].append(f"  ↳ Available auxiliary fields in layer: {', '.join(aux_field_names)}")
+            
+            # List of properties to restore from auxiliary storage
+            # The fields are named "labeling_positionx" in the aux table but appear as 
+            # "auxiliary_storage_labeling_positionx" in the joined layer
+            property_mappings = {
+                'positionx': QgsPalLayerSettings.PositionX,
+                'positiony': QgsPalLayerSettings.PositionY,
+                'rotation': QgsPalLayerSettings.LabelRotation,
+                'show': QgsPalLayerSettings.Show,
+                'alwaysshow': QgsPalLayerSettings.AlwaysShow,
+                'fontsize': QgsPalLayerSettings.Size,
+                'color': QgsPalLayerSettings.Color,
+                'fontfamily': QgsPalLayerSettings.Family,
+                'fontstyle': QgsPalLayerSettings.FontStyle,
+                'hali': QgsPalLayerSettings.Hali,
+                'vali': QgsPalLayerSettings.Vali,
+                'lineanchorpercent': QgsPalLayerSettings.LineAnchorPercent,
+                'lineanchorclipping': QgsPalLayerSettings.LineAnchorClipping,
+                'lineanchortype': QgsPalLayerSettings.LineAnchorType,
+                'lineanchortextpoint': QgsPalLayerSettings.LineAnchorTextPoint,
+            }
+            
+            overrides_restored = 0
+            for prop_suffix, property_key in property_mappings.items():
+                # The field name in the layer will be "auxiliary_storage_labeling_<property>"
+                field_name = f'auxiliary_storage_labeling_{prop_suffix}'
+                
+                if field_name.lower() in layer_fields:
+                    # Get the actual field name (with proper casing)
+                    actual_field_name = layer_fields[field_name.lower()]
+                    
+                    # Create a data-defined property that references this field
+                    prop = QgsProperty.fromField(actual_field_name)
+                    
+                    # Set the data-defined override
+                    data_defined = settings.dataDefinedProperties()
+                    data_defined.setProperty(property_key, prop)
+                    settings.setDataDefinedProperties(data_defined)
+                    
+                    overrides_restored += 1
+                    if results:
+                        results['warnings'].append(f"  ↳   Linked '{actual_field_name}' to property {property_key}")
+            
+            # Apply the updated settings back to the labeling
+            if overrides_restored > 0:
+                # Update the labeling with the modified settings
+                if hasattr(labeling, 'setSettings'):
+                    labeling.setSettings(settings)
+                    layer.setLabeling(labeling)
+                
+                if results:
+                    results['warnings'].append(
+                        f"  ↳ ✓ Restored {overrides_restored} data-defined overrides for '{layer.name()}'"
+                    )
+            else:
+                if results:
+                    results['warnings'].append(
+                        f"  ↳ ⚠ No matching auxiliary labeling fields found for '{layer.name()}'"
+                    )
+        
+        except Exception as e:
+            if results:
+                results['warnings'].append(f"  ↳ Error restoring labeling overrides: {str(e)}")
+            print(f"Error restoring labeling overrides: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    @staticmethod
+    def _update_symbology_only(
+        existing_layer: QgsMapLayer,
+        source_layer: QgsMapLayer,
+        preserve_layer_filters: bool,
+        preserve_auxiliary_tables: bool,
+        results: dict = None
+    ) -> bool:
+        """
+        Update only the symbology of an existing layer without changing its data source.
+        Preserves filters and auxiliary data.
+        
+        Args:
+            existing_layer: The existing layer to update
+            source_layer: The source layer with symbology to copy
+            preserve_layer_filters: Whether to preserve existing filters
+            preserve_auxiliary_tables: Whether to preserve auxiliary data
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Preserve filter if requested
+            existing_filter = None
+            if preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'subsetString'):
+                        existing_filter = existing_layer.subsetString()
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Could not read filter: {str(e)}")
+            
+            # Update symbology
+            if source_layer.type() == QgsMapLayer.VectorLayer:
+                # Copy renderer
+                if source_layer.renderer():
+                    try:
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+                        if results:
+                            results['warnings'].append(f"  ↳ Updated renderer for '{existing_layer.name()}'")
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"  ↳ Could not update renderer: {str(e)}")
+                
+                # Copy labeling
+                if source_layer.labeling():
+                    try:
+                        existing_layer.setLabeling(source_layer.labeling().clone())
+                        existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                        if results:
+                            results['warnings'].append(f"  ↳ Updated labeling for '{existing_layer.name()}'")
+                        
+                        # Restore data-defined overrides for auxiliary data
+                        if preserve_auxiliary_tables:
+                            MirrorProjectLogic._restore_labeling_auxiliary_overrides(
+                                existing_layer,
+                                results
+                            )
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"  ↳ Could not update labeling: {str(e)}")
+            
+            elif source_layer.type() == QgsMapLayer.RasterLayer:
+                # Copy renderer for raster
+                if source_layer.renderer():
+                    try:
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+                        if results:
+                            results['warnings'].append(f"  ↳ Updated raster renderer for '{existing_layer.name()}'")
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"  ↳ Could not update raster renderer: {str(e)}")
+            
+            # Restore filter if we preserved it
+            if existing_filter and preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'setSubsetString'):
+                        success = existing_layer.setSubsetString(existing_filter)
+                        if success and results:
+                            results['warnings'].append(f"  ↳ Restored filter for '{existing_layer.name()}'")
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"  ↳ Error restoring filter: {str(e)}")
+            
+            # Verify auxiliary data is preserved (only for vector layers)
+            if preserve_auxiliary_tables and source_layer.type() == QgsMapLayer.VectorLayer:
+                try:
+                    aux_layer = existing_layer.auxiliaryLayer()
+                    if aux_layer and aux_layer.featureCount() > 0:
+                        if results:
+                            results['warnings'].append(
+                                f"  ↳ ✓ Auxiliary data preserved ({aux_layer.featureCount()} features)"
+                            )
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"  ↳ Error checking auxiliary data: {str(e)}")
+            
+            return True
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error updating symbology only: {str(e)}")
+            print(f"Error updating symbology only: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def _add_new_layer_to_project(
+        source_layer: QgsMapLayer,
+        target_project: QgsProject,
+        copy_symbology: bool,
+        results: dict = None
+    ) -> bool:
+        """
+        Add a new layer to the project (layer doesn't exist yet).
+        
+        Args:
+            source_layer: The source layer to add
+            target_project: The project to add it to
+            copy_symbology: Whether to copy symbology
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Create XML document to serialize layer
+            doc = QDomDocument("layer")
+            context = QgsReadWriteContext()
+            
+            # Write layer to XML
+            layer_elem = doc.createElement("maplayer")
+            doc.appendChild(layer_elem)
+            
+            if not source_layer.writeLayerXml(layer_elem, doc, context):
+                if results:
+                    results['errors'].append(f"Failed to serialize layer '{source_layer.name()}'")
+                return False
+            
+            # Create new layer from XML
+            if source_layer.type() == QgsMapLayer.VectorLayer:
+                new_layer = QgsVectorLayer()
+            elif source_layer.type() == QgsMapLayer.RasterLayer:
+                new_layer = QgsRasterLayer()
+            else:
+                if results:
+                    results['errors'].append(f"Unsupported layer type for '{source_layer.name()}'")
+                return False
+            
+            # Read layer from XML
+            if not new_layer.readLayerXml(layer_elem, context):
+                if results:
+                    results['errors'].append(f"Failed to deserialize layer '{source_layer.name()}'")
+                return False
+            
+            # Set layer name
+            new_layer.setName(source_layer.name())
+            
+            # Add to project (but not to layer tree yet)
+            if not target_project.addMapLayer(new_layer, False):
+                if results:
+                    results['errors'].append(f"Failed to add layer '{source_layer.name()}' to project")
+                return False
+            
+            # Add to layer tree root
+            root = target_project.layerTreeRoot()
+            root.addLayer(new_layer)
+            
+            # Copy symbology if requested
+            if copy_symbology:
+                if source_layer.type() == QgsMapLayer.VectorLayer:
+                    if source_layer.renderer():
+                        try:
+                            new_layer.setRenderer(source_layer.renderer().clone())
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not copy renderer: {str(e)}")
+                    
+                    if source_layer.labeling():
+                        try:
+                            new_layer.setLabeling(source_layer.labeling().clone())
+                            new_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not copy labeling: {str(e)}")
+                
+                elif source_layer.type() == QgsMapLayer.RasterLayer:
+                    if source_layer.renderer():
+                        try:
+                            new_layer.setRenderer(source_layer.renderer().clone())
+                        except Exception as e:
+                            if results:
+                                results['warnings'].append(f"Could not copy raster renderer: {str(e)}")
+            
+            if results:
+                results['warnings'].append(f"Added new layer '{source_layer.name()}'")
+            
+            return True
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error adding new layer: {str(e)}")
+            print(f"Error adding new layer: {e}")
+            import traceback
+            traceback.print_exc()
+            return False

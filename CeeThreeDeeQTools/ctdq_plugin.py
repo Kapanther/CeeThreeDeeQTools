@@ -191,6 +191,7 @@ class CTDQPlugin(object):
             create_backups = dialog.get_create_backups()
             add_layer_groups = dialog.get_add_layer_groups()
             preserve_layer_filters = dialog.get_preserve_layer_filters()
+            preserve_auxiliary_tables = dialog.get_preserve_auxiliary_tables()  # NEW
 
             # Create progress dialog (modal) to show progress bar; console will contain textual log
             progress = QProgressDialog(
@@ -229,7 +230,8 @@ class CTDQPlugin(object):
                     add_layer_groups=add_layer_groups,
                     selected_themes=selected_themes,
                     selected_layouts=selected_layouts,
-                    preserve_layer_filters=preserve_layer_filters
+                    preserve_layer_filters=preserve_layer_filters,
+                    preserve_auxiliary_tables=preserve_auxiliary_tables  # NEW
                 )
                 progress.close()
                 # Display results in the dialog console
