@@ -14,6 +14,7 @@ from osgeo import ogr, gdal
 import os
 from datetime import datetime
 import sqlite3
+import processing
 
 
 class PackageLayerUpdaterLogic:
@@ -174,35 +175,69 @@ class PackageLayerUpdaterLogic:
                     layer = ds.GetLayerByIndex(i)
                     if layer:
                         layer_names.append(layer.GetName())
+                        print(f"Found vector layer: {layer.GetName()}")
                 ds = None
         except Exception as e:
             print(f"Error reading vector layers from geopackage: {e}")
         
         try:
-            # Get raster layers using GDAL
+            # Get raster layers using GDAL subdatasets
+            print(f"Checking for rasters in: {gpkg_path}")
             ds = gdal.Open(gpkg_path, gdal.GA_ReadOnly)
             if ds is not None:
                 # Check for subdatasets (rasters in geopackage)
                 subdatasets = ds.GetSubDatasets()
+                print(f"Found {len(subdatasets) if subdatasets else 0} subdatasets")
+                
                 if subdatasets:
                     for subdataset_desc, subdataset_name in subdatasets:
-                        # Extract the raster table name from the subdataset description
-                        # Format is typically: "GPKG:path/to/file.gpkg:table_name - ..."
+                        print(f"  Subdataset: {subdataset_name}")
+                        print(f"  Description: {subdataset_desc}")
+                        
+                        # Extract the raster table name from the subdataset
                         try:
-                            # Parse the table name from subdataset_name or subdataset_desc
+                            # Parse the table name from subdataset_name
+                            # Format: GPKG:C:/path/file.gpkg:table_name
                             if ':' in subdataset_name:
                                 parts = subdataset_name.split(':')
                                 if len(parts) >= 3:
                                     table_name = parts[2]  # GPKG:path:table_name
                                     if table_name not in layer_names:
                                         layer_names.append(table_name)
+                                        print(f"  Added raster layer: {table_name}")
                         except Exception as parse_err:
-                            print(f"Error parsing raster subdataset name: {parse_err}")
+                            print(f"  Error parsing raster subdataset name: {parse_err}")
+                else:
+                    print("  No subdatasets found, checking metadata...")
                 
                 ds = None
         except Exception as e:
-            print(f"Error reading raster layers from geopackage: {e}")
+            print(f"Error reading raster layers from geopackage with GDAL: {e}")
         
+        try:
+            # Alternative method: Query gpkg_contents table directly
+            conn = sqlite3.connect(gpkg_path)
+            cursor = conn.cursor()
+            
+            # Get all table names from gpkg_contents
+            cursor.execute("SELECT table_name, data_type FROM gpkg_contents")
+            contents = cursor.fetchall()
+            
+            print(f"Contents from gpkg_contents table:")
+            for table_name, data_type in contents:
+                print(f"  {table_name} ({data_type})")
+                
+                # Add raster tables that aren't already in the list
+                if data_type == 'tiles' or data_type == '2d-gridded-coverage':
+                    if table_name not in layer_names:
+                        layer_names.append(table_name)
+                        print(f"  Added raster from gpkg_contents: {table_name}")
+            
+            conn.close()
+        except Exception as e:
+            print(f"Error querying gpkg_contents table: {e}")
+        
+        print(f"Total layers found: {len(layer_names)}")
         return layer_names
     
     @staticmethod
@@ -373,6 +408,7 @@ class PackageLayerUpdaterLogic:
     ) -> bool:
         """
         Update a raster layer in a geopackage with data from the source layer.
+        Uses QGIS processing framework's gdal:translate for proper geopackage handling.
         
         Args:
             source_layer: The raster layer from the active project
@@ -389,27 +425,13 @@ class PackageLayerUpdaterLogic:
             if results and existing_history:
                 results['warnings'].append(f"Preserved {len(existing_history)} existing history entries for '{source_layer.name()}'")
             
-            # Delete the existing raster layer from the geopackage using GDAL
-            ds = gdal.Open(gpkg_path, gdal.GA_Update)
-            if ds is None:
+            # Get the source raster file path
+            source_path = source_layer.source().split('|')[0]
+            
+            if not os.path.exists(source_path):
                 if results:
-                    results['errors'].append(f"Could not open geopackage for writing: {gpkg_path}")
+                    results['errors'].append(f"Source raster file not found: {source_path}")
                 return False
-            
-            # Check if the raster exists in the geopackage
-            raster_deleted = False
-            for i in range(ds.RasterCount + 1):  # Check all subdatasets
-                subdatasets = ds.GetSubDatasets()
-                for subdataset_desc, subdataset_name in subdatasets:
-                    if source_layer.name() in subdataset_desc:
-                        # Can't delete directly, will overwrite instead
-                        raster_deleted = True
-                        break
-            
-            ds = None
-            
-            if results and raster_deleted:
-                results['warnings'].append(f"Will overwrite existing raster layer '{source_layer.name()}' in geopackage")
             
             # Create new history entry
             new_history_entry = PackageLayerUpdaterLogic._create_history_entry(source_layer)
@@ -417,48 +439,29 @@ class PackageLayerUpdaterLogic:
             # Combine existing history with new entry
             updated_history = existing_history + [new_history_entry] if existing_history else [new_history_entry]
             
-            # Get the source raster file path
-            source_path = source_layer.source().split('|')[0]
+            if results:
+                results['warnings'].append(f"Updating raster '{source_layer.name()}' in geopackage (will overwrite if exists)")
             
-            # Use GDAL to write the raster to the geopackage
-            # Open source raster
-            src_ds = gdal.Open(source_path, gdal.GA_ReadOnly)
-            if src_ds is None:
-                if results:
-                    results['errors'].append(f"Could not open source raster: {source_path}")
-                return False
+            # Use QGIS processing framework's gdal:translate
+            # APPEND_SUBDATASET will overwrite if the raster table already exists
+            params = {
+                'INPUT': source_path,
+                'TARGET_CRS': None,
+                'NODATA': None,
+                'COPY_SUBDATASETS': False,
+                'OPTIONS': '',
+                'EXTRA': f'-co APPEND_SUBDATASET=YES -co RASTER_TABLE={source_layer.name()}',
+                'DATA_TYPE': 0,  # Use same data type as source
+                'OUTPUT': gpkg_path
+            }
             
-            # Create output in geopackage with GPKG driver
-            driver = gdal.GetDriverByName('GPKG')
-            if driver is None:
-                if results:
-                    results['errors'].append("GPKG driver not available")
-                src_ds = None
-                return False
+            # Run the processing algorithm
+            result = processing.run("gdal:translate", params)
             
-            # Set creation options for geopackage raster
-            creation_options = [
-                f'RASTER_TABLE={source_layer.name()}',
-                'APPEND_SUBDATASET=YES'  # Append to existing geopackage
-            ]
-            
-            # Create the raster in the geopackage
-            dst_ds = driver.CreateCopy(
-                gpkg_path,
-                src_ds,
-                strict=0,
-                options=creation_options
-            )
-            
-            if dst_ds is None:
+            if not result or 'OUTPUT' not in result:
                 if results:
                     results['errors'].append(f"Failed to write raster '{source_layer.name()}' to geopackage")
-                src_ds = None
                 return False
-            
-            # Close datasets
-            dst_ds = None
-            src_ds = None
             
             if results:
                 results['warnings'].append(f"✓ Raster layer '{source_layer.name()}' written to geopackage")
@@ -466,15 +469,17 @@ class PackageLayerUpdaterLogic:
             
             # Write history metadata to the geopackage contents table
             import time
-            time.sleep(0.2)  # Delay to ensure write is complete
+            time.sleep(0.3)  # Longer delay to ensure write is complete
             
             # Write history to gpkg_contents description field
-            PackageLayerUpdaterLogic._write_raster_history_to_gpkg(
+            if PackageLayerUpdaterLogic._write_raster_history_to_gpkg(
                 gpkg_path,
                 source_layer.name(),
                 updated_history,
                 results
-            )
+            ):
+                if results:
+                    results['warnings'].append(f"✓ History metadata saved for '{source_layer.name()}'")
             
             return True
         
@@ -495,6 +500,9 @@ class PackageLayerUpdaterLogic:
     ) -> bool:
         """
         Write history metadata for a raster layer directly to the geopackage.
+        Note: Raster layers in geopackages don't support the rich metadata/history structure
+        that vector layers have. History is stored in gpkg_contents.description field,
+        which appears in Layer Properties → Information → More information → DESCRIPTION.
         
         Args:
             gpkg_path: Path to the geopackage
@@ -510,25 +518,51 @@ class PackageLayerUpdaterLogic:
             conn = sqlite3.connect(gpkg_path)
             cursor = conn.cursor()
             
+            # Check if our specific table exists
+            cursor.execute(
+                "SELECT table_name FROM gpkg_contents WHERE table_name = ?",
+                (layer_name,)
+            )
+            existing_row = cursor.fetchone()
+            
+            if not existing_row:
+                # Try with LIKE pattern in case the table name has been modified
+                cursor.execute(
+                    "SELECT table_name FROM gpkg_contents WHERE table_name LIKE ?",
+                    (f"%{layer_name}%",)
+                )
+                like_matches = cursor.fetchall()
+                
+                if like_matches:
+                    layer_name = like_matches[0][0]
+                    if results:
+                        results['warnings'].append(f"Using table name '{layer_name}' for history update")
+                else:
+                    if results:
+                        results['warnings'].append(f"Raster table '{layer_name}' not found in gpkg_contents")
+                    conn.close()
+                    return False
+            
             # Format history as a text block with prefix
             history_text = "HISTORY:\n" + "\n".join(history_entries)
             
             # Update the description field in gpkg_contents
-            # For rasters, the table_name might have a prefix
             cursor.execute(
-                "UPDATE gpkg_contents SET description = ? WHERE table_name = ? OR table_name LIKE ?",
-                (history_text, layer_name, f"%{layer_name}%")
+                "UPDATE gpkg_contents SET description = ? WHERE table_name = ?",
+                (history_text, layer_name)
             )
             
             rows_affected = cursor.rowcount
-            
             conn.commit()
             conn.close()
             
             if rows_affected > 0:
                 if results:
                     results['warnings'].append(
-                        f"Wrote {len(history_entries)} history entries to database for raster layer"
+                        f"✓ Wrote {len(history_entries)} history entries for raster '{layer_name}'"
+                    )
+                    results['warnings'].append(
+                        f"  Note: Raster history is in Layer Properties → Information → DESCRIPTION field"
                     )
                 return True
             else:
@@ -542,6 +576,8 @@ class PackageLayerUpdaterLogic:
             if results:
                 results['errors'].append(f"Error writing raster history to geopackage: {str(e)}")
             print(f"Error writing raster history: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     @staticmethod
