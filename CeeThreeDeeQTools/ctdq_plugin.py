@@ -281,6 +281,7 @@ class CTDQPlugin(object):
             selected_layers = dialog.get_selected_layers()
             target_geopackages = dialog.get_target_geopackages()
             update_new_only = dialog.get_update_new_only()
+            fix_fids = dialog.get_fix_fids()
             
             # Create progress dialog
             progress = QProgressDialog(
@@ -310,7 +311,8 @@ class CTDQPlugin(object):
                     selected_layers,
                     target_geopackages,
                     update_progress,
-                    update_new_only=update_new_only
+                    update_new_only=update_new_only,
+                    fix_fids=fix_fids
                 )
                 progress.close()
                 
@@ -330,7 +332,7 @@ class CTDQPlugin(object):
                     self.tr("Package Layer Updater - Error"),
                     self.tr(f"An error occurred during update:\n{str(e)}")
                 )
-        
+
         # Register callback and show dialog
         dialog.set_update_callback(update_callback)
         dialog.show()

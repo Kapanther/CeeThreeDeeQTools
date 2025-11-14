@@ -150,6 +150,17 @@ class PackageLayerUpdaterDialog(QDialog):
         )
         options_layout.addWidget(self.update_new_only_checkbox)
         
+        # Fix FIDs checkbox
+        self.fix_fids_checkbox = QCheckBox("Fix Duplicate FIDs")
+        self.fix_fids_checkbox.setChecked(False)  # Default to OFF
+        self.fix_fids_checkbox.setToolTip(
+            "If checked, duplicate FID values will be automatically fixed by renumbering.\n"
+            "Later rows (assumed to be newer) will have their FIDs changed to the next available number.\n"
+            "If unchecked, layers with duplicate FIDs will be skipped with a warning,\n"
+            "since geopackages require unique FIDs."
+        )
+        options_layout.addWidget(self.fix_fids_checkbox)
+        
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
@@ -306,6 +317,10 @@ class PackageLayerUpdaterDialog(QDialog):
         """Get whether to update only new/modified layers."""
         return self.update_new_only_checkbox.isChecked()
     
+    def get_fix_fids(self):
+        """Get whether to fix duplicate FIDs."""
+        return self.fix_fids_checkbox.isChecked()
+
     def append_console(self, message: str):
         """Append a line to the console."""
         try:

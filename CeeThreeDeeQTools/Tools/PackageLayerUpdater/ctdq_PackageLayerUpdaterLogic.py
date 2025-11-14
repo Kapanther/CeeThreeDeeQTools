@@ -27,7 +27,8 @@ class PackageLayerUpdaterLogic:
         layer_ids: list,
         target_geopackages: list,
         progress_callback=None,
-        update_new_only: bool = False
+        update_new_only: bool = False,
+        fix_fids: bool = False
     ):
         """
         Update layers in geopackages with data from the active project.
@@ -37,6 +38,7 @@ class PackageLayerUpdaterLogic:
             target_geopackages: List of geopackage file paths to update
             progress_callback: Optional callback function(message, progress)
             update_new_only: Only update layers that have been modified since last update
+            fix_fids: Fix duplicate FID values by renumbering
         
         Returns:
             dict: Results with success/error information
@@ -46,6 +48,7 @@ class PackageLayerUpdaterLogic:
             'geopackages_updated': 0,
             'layers_updated': 0,
             'layers_skipped': 0,
+            'fids_fixed': 0,
             'errors': [],
             'warnings': []
         }
@@ -121,6 +124,26 @@ class PackageLayerUpdaterLogic:
                                     )
                                     continue
                         
+                            # Check for duplicate FIDs before updating (only for vector layers)
+                            from qgis.core import QgsMapLayer
+                            if layer.type() == QgsMapLayer.VectorLayer:
+                                fid_check = PackageLayerUpdaterLogic._check_and_fix_duplicate_fids(
+                                    layer, fix_fids, results
+                                )
+                                
+                                if not fid_check['can_proceed']:
+                                    results['layers_skipped'] += 1
+                                    results['warnings'].append(
+                                        f"⊘ Skipped '{layer.name()}' in {os.path.basename(gpkg_path)}: {fid_check['message']}"
+                                    )
+                                    continue
+                                
+                                if fid_check['fixed_count'] > 0:
+                                    results['fids_fixed'] += fid_check['fixed_count']
+                                    results['warnings'].append(
+                                        f"✓ Fixed {fid_check['fixed_count']} duplicate FID(s) in '{layer.name()}'"
+                                    )
+                        
                             if PackageLayerUpdaterLogic._update_layer_in_geopackage(
                                 layer, gpkg_path, results
                             ):
@@ -136,7 +159,7 @@ class PackageLayerUpdaterLogic:
                         else:
                             results['warnings'].append(
                                 f"Layer '{layer.name()}' not found in {os.path.basename(gpkg_path)}"
-                        )
+                            )
                     
                     except Exception as layer_error:
                         results['errors'].append(
@@ -811,3 +834,164 @@ class PackageLayerUpdaterLogic:
         except Exception as e:
             print(f"Error parsing history entry: {e}")
             return {}
+
+    @staticmethod
+    def _check_and_fix_duplicate_fids(
+        layer: QgsVectorLayer,
+        fix_fids: bool,
+        results: dict = None
+    ) -> dict:
+        """
+        Check for duplicate FID values in a layer and optionally fix them.
+        
+        Args:
+            layer: The vector layer to check
+            fix_fids: Whether to fix duplicate FIDs
+            results: Optional results dict for messages
+        
+        Returns:
+            dict: Result with keys:
+                - can_proceed: bool, whether the layer can be exported
+                - fixed_count: int, number of FIDs that were fixed
+                - message: str, description of what happened
+        """
+        result = {
+            'can_proceed': True,
+            'fixed_count': 0,
+            'message': ''
+        }
+        
+        try:
+            # First, find the FID field index
+            fid_field_idx = -1
+            for idx, field in enumerate(layer.fields()):
+                if field.name().lower() == 'fid':
+                    fid_field_idx = idx
+                    break
+            
+            if fid_field_idx < 0:
+                # Try using the first primary key field
+                fid_field_name = layer.dataProvider().primaryKeyAttributes()
+                if fid_field_name and len(fid_field_name) > 0:
+                    fid_field_idx = fid_field_name[0]
+            
+            if fid_field_idx < 0:
+                result['can_proceed'] = False
+                result['message'] = "Could not identify FID field in layer"
+                return result
+            
+            # Get all features and their FID attribute values
+            fid_map = {}  # Map FID attribute value to list of (feature, feature_index) tuples
+            
+            for idx, feature in enumerate(layer.getFeatures()):
+                # Get the FID from the attribute field, NOT from feature.id()
+                fid_value = feature.attribute(fid_field_idx)
+                
+                if fid_value not in fid_map:
+                    fid_map[fid_value] = []
+                fid_map[fid_value].append((feature, idx))
+            
+            # Find duplicate FID values
+            duplicates = {fid: feat_list for fid, feat_list in fid_map.items() if len(feat_list) > 1}
+            
+            if not duplicates:
+                result['message'] = 'No duplicate FIDs found'
+                return result
+            
+            total_duplicates = sum(len(feat_list) - 1 for feat_list in duplicates.values())
+            
+            if not fix_fids:
+                # Don't fix - warn and prevent export
+                result['can_proceed'] = False
+                result['message'] = (
+                    f"Layer has {total_duplicates} duplicate FID(s). "
+                    f"Enable 'Fix Duplicate FIDs' option to automatically fix, "
+                    f"or manually fix the FIDs in your source data. "
+                    f"Geopackages require unique FIDs."
+                )
+                if results:
+                    results['warnings'].append(
+                        f"⚠ Found {len(duplicates)} duplicate FID value(s) in '{layer.name()}' "
+                        f"(total {total_duplicates} duplicate rows)"
+                    )
+                return result
+            
+            # Fix the duplicates by renumbering later rows
+            if results:
+                results['warnings'].append(
+                    f"Fixing {total_duplicates} duplicate FID(s) in '{layer.name()}'..."
+                )
+            
+            # Find the maximum FID value to start new numbering from
+            max_fid = max(fid_map.keys())
+            next_available_fid = max_fid + 1
+            
+            # Check if layer supports editing
+            if not layer.dataProvider().capabilities() & layer.dataProvider().ChangeAttributeValues:
+                result['can_proceed'] = False
+                result['message'] = f"Layer provider does not support changing attribute values"
+                return result
+            
+            # Start editing
+            if not layer.startEditing():
+                result['can_proceed'] = False
+                result['message'] = "Could not start editing session on layer"
+                return result
+            
+            fixed_count = 0
+            
+            # For each FID value with duplicates, renumber all but the first occurrence
+            for fid_value, feat_list in duplicates.items():
+                # Keep the first occurrence, renumber the rest
+                for feature, feature_idx in feat_list[1:]:
+                    # Change the FID attribute value using QGIS feature ID
+                    if layer.changeAttributeValue(feature.id(), fid_field_idx, next_available_fid):
+                        fixed_count += 1
+                        next_available_fid += 1
+            
+            # Commit changes
+            if layer.commitChanges():
+                result['fixed_count'] = fixed_count
+                result['message'] = f'Fixed {fixed_count} duplicate FID(s)'
+                
+                if results:
+                    results['warnings'].append(
+                        f"✓ Successfully fixed {fixed_count} duplicate FID(s) in '{layer.name()}'"
+                    )
+            else:
+                # Get commit errors
+                commit_errors = layer.commitErrors()
+                
+                # Rollback on failure
+                layer.rollBack()
+                result['can_proceed'] = False
+                result['message'] = f'Failed to commit FID fixes: {", ".join(commit_errors)}'
+                
+                if results:
+                    results['warnings'].append(
+                        f"✗ Failed to commit FID fixes for '{layer.name()}': {', '.join(commit_errors)}"
+                    )
+            
+            return result
+        
+        except Exception as e:
+            # Ensure we rollback on exception
+            try:
+                if layer.isEditable():
+                    layer.rollBack()
+            except Exception:
+                pass
+            
+            result['can_proceed'] = False
+            result['message'] = f'Exception checking/fixing FIDs: {str(e)}'
+            
+            if results:
+                results['warnings'].append(
+                    f"✗ Error checking/fixing FIDs for '{layer.name()}': {str(e)}"
+                )
+            
+            print(f"Error checking/fixing FIDs: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            return result
