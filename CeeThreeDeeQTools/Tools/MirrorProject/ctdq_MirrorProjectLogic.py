@@ -1446,13 +1446,14 @@ class MirrorProjectLogic:
         Restore data-defined overrides for labeling properties that connect to auxiliary storage.
         This reconnects label position, rotation, and other manually adjusted properties to the
         auxiliary storage fields after labeling configuration has been updated.
+        Supports both simple and rule-based labeling.
         
         Args:
             layer: The vector layer to restore overrides for
             results: Optional results dict for messages
         """
         try:
-            from qgis.core import QgsPalLayerSettings, QgsProperty
+            from qgis.core import QgsPalLayerSettings, QgsProperty, QgsRuleBasedLabeling
             
             # Get the auxiliary layer
             aux_layer = layer.auxiliaryLayer()
@@ -1474,21 +1475,6 @@ class MirrorProjectLogic:
                     results['warnings'].append(f"  ↳ No labeling configuration for '{layer.name()}'")
                 return
             
-            # Get label settings (assuming simple labeling - not rule-based)
-            settings = None
-            if hasattr(labeling, 'settings'):
-                settings = labeling.settings()
-            
-            if not settings:
-                # Try to get settings for rule-based or other labeling types
-                if hasattr(labeling, 'type') and labeling.type() == 'simple':
-                    settings = labeling.settings()
-            
-            if not settings:
-                if results:
-                    results['warnings'].append(f"  ↳ Could not get label settings for '{layer.name()}'")
-                return
-            
             # Build a map of layer fields (which includes the joined auxiliary fields with prefix)
             layer_fields = {}
             for field in layer.fields():
@@ -1496,11 +1482,10 @@ class MirrorProjectLogic:
             
             if results:
                 aux_field_names = [f for f in layer_fields.keys() if 'auxiliary_storage' in f]
-                results['warnings'].append(f"  ↳ Available auxiliary fields in layer: {', '.join(aux_field_names)}")
+                if aux_field_names:
+                    results['warnings'].append(f"  ↳ Available auxiliary fields in layer: {', '.join(aux_field_names[:5])}{'...' if len(aux_field_names) > 5 else ''}")
             
-            # List of properties to restore from auxiliary storage
-            # The fields are named "labeling_positionx" in the aux table but appear as 
-            # "auxiliary_storage_labeling_positionx" in the joined layer
+            # Property mappings
             property_mappings = {
                 'positionx': QgsPalLayerSettings.PositionX,
                 'positiony': QgsPalLayerSettings.PositionY,
@@ -1519,37 +1504,90 @@ class MirrorProjectLogic:
                 'lineanchortextpoint': QgsPalLayerSettings.LineAnchorTextPoint,
             }
             
-            overrides_restored = 0
-            for prop_suffix, property_key in property_mappings.items():
-                # The field name in the layer will be "auxiliary_storage_labeling_<property>"
-                field_name = f'auxiliary_storage_labeling_{prop_suffix}'
+            # Helper function to restore overrides for a single settings object
+            def restore_overrides_for_settings(settings, label_context=""):
+                overrides_restored = 0
+                for prop_suffix, property_key in property_mappings.items():
+                    # The field name in the layer will be "auxiliary_storage_labeling_<property>"
+                    field_name = f'auxiliary_storage_labeling_{prop_suffix}'
+                    
+                    if field_name.lower() in layer_fields:
+                        # Get the actual field name (with proper casing)
+                        actual_field_name = layer_fields[field_name.lower()]
+                        
+                        # Create a data-defined property that references this field
+                        prop = QgsProperty.fromField(actual_field_name)
+                        
+                        # Set the data-defined override
+                        data_defined = settings.dataDefinedProperties()
+                        data_defined.setProperty(property_key, prop)
+                        settings.setDataDefinedProperties(data_defined)
+                        
+                        overrides_restored += 1
                 
-                if field_name.lower() in layer_fields:
-                    # Get the actual field name (with proper casing)
-                    actual_field_name = layer_fields[field_name.lower()]
-                    
-                    # Create a data-defined property that references this field
-                    prop = QgsProperty.fromField(actual_field_name)
-                    
-                    # Set the data-defined override
-                    data_defined = settings.dataDefinedProperties()
-                    data_defined.setProperty(property_key, prop)
-                    settings.setDataDefinedProperties(data_defined)
-                    
-                    overrides_restored += 1
-                    if results:
-                        results['warnings'].append(f"  ↳   Linked '{actual_field_name}' to property {property_key}")
+                if overrides_restored > 0 and results:
+                    context_str = f" ({label_context})" if label_context else ""
+                    results['warnings'].append(f"  ↳   Restored {overrides_restored} overrides{context_str}")
+                
+                return overrides_restored
             
-            # Apply the updated settings back to the labeling
-            if overrides_restored > 0:
-                # Update the labeling with the modified settings
-                if hasattr(labeling, 'setSettings'):
-                    labeling.setSettings(settings)
-                    layer.setLabeling(labeling)
+            total_overrides_restored = 0
+            
+            # Check labeling type
+            labeling_type = labeling.type() if hasattr(labeling, 'type') else None
+            
+            if labeling_type == 'rule-based':
+                # Rule-based labeling - need to process each rule
+                if results:
+                    results['warnings'].append(f"  ↳ Processing rule-based labeling for '{layer.name()}'")
                 
+                # Get the root rule
+                root_rule = labeling.rootRule()
+                
+                # Recursive function to process all rules
+                def process_rule(rule, depth=0):
+                    nonlocal total_overrides_restored
+                    
+                    # Process this rule's settings if it has them
+                    if rule.settings():
+                        rule_label = rule.description() or f"Rule at depth {depth}"
+                        count = restore_overrides_for_settings(rule.settings(), f"rule: {rule_label}")
+                        total_overrides_restored += count
+                    
+                    # Process child rules recursively
+                    for child_rule in rule.children():
+                        process_rule(child_rule, depth + 1)
+                
+                # Start processing from root
+                process_rule(root_rule)
+                
+                # Update the labeling with modified rules
+                layer.setLabeling(labeling)
+            
+            elif labeling_type == 'simple' or hasattr(labeling, 'settings'):
+                # Simple labeling
+                if results:
+                    results['warnings'].append(f"  ↳ Processing simple labeling for '{layer.name()}'")
+                
+                settings = labeling.settings()
+                if settings:
+                    total_overrides_restored = restore_overrides_for_settings(settings)
+                    
+                    # Update the labeling with modified settings
+                    if hasattr(labeling, 'setSettings'):
+                        labeling.setSettings(settings)
+                        layer.setLabeling(labeling)
+            
+            else:
+                if results:
+                    results['warnings'].append(f"  ↳ Unknown labeling type '{labeling_type}' for '{layer.name()}'")
+                return
+            
+            # Summary
+            if total_overrides_restored > 0:
                 if results:
                     results['warnings'].append(
-                        f"  ↳ ✓ Restored {overrides_restored} data-defined overrides for '{layer.name()}'"
+                        f"  ↳ ✓ Restored {total_overrides_restored} data-defined overrides total for '{layer.name()}'"
                     )
             else:
                 if results:
@@ -1563,212 +1601,3 @@ class MirrorProjectLogic:
             print(f"Error restoring labeling overrides: {e}")
             import traceback
             traceback.print_exc()
-            
-    @staticmethod
-    def _update_symbology_only(
-        existing_layer: QgsMapLayer,
-        source_layer: QgsMapLayer,
-        preserve_layer_filters: bool,
-        preserve_auxiliary_tables: bool,
-        results: dict = None
-    ) -> bool:
-        """
-        Update only the symbology of an existing layer without changing its data source.
-        Preserves filters and auxiliary data.
-        
-        Args:
-            existing_layer: The existing layer to update
-            source_layer: The source layer with symbology to copy
-            preserve_layer_filters: Whether to preserve existing filters
-            preserve_auxiliary_tables: Whether to preserve auxiliary data
-            results: Optional results dict for messages
-        
-        Returns:
-            bool: True if successful
-        """
-        try:
-            # Preserve filter if requested
-            existing_filter = None
-            if preserve_layer_filters:
-                try:
-                    if hasattr(existing_layer, 'subsetString'):
-                        existing_filter = existing_layer.subsetString()
-                except Exception as e:
-                    if results:
-                        results['warnings'].append(f"Could not read filter: {str(e)}")
-            
-            # Update symbology
-            if source_layer.type() == QgsMapLayer.VectorLayer:
-                # Copy renderer
-                if source_layer.renderer():
-                    try:
-                        existing_layer.setRenderer(source_layer.renderer().clone())
-                        if results:
-                            results['warnings'].append(f"  ↳ Updated renderer for '{existing_layer.name()}'")
-                    except Exception as e:
-                        if results:
-                            results['warnings'].append(f"  ↳ Could not update renderer: {str(e)}")
-                
-                # Copy labeling
-                if source_layer.labeling():
-                    try:
-                        existing_layer.setLabeling(source_layer.labeling().clone())
-                        existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
-                        if results:
-                            results['warnings'].append(f"  ↳ Updated labeling for '{existing_layer.name()}'")
-                        
-                        # Restore data-defined overrides for auxiliary data
-                        if preserve_auxiliary_tables:
-                            MirrorProjectLogic._restore_labeling_auxiliary_overrides(
-                                existing_layer,
-                                results
-                            )
-                    except Exception as e:
-                        if results:
-                            results['warnings'].append(f"  ↳ Could not update labeling: {str(e)}")
-            
-            elif source_layer.type() == QgsMapLayer.RasterLayer:
-                # Copy renderer for raster
-                if source_layer.renderer():
-                    try:
-                        existing_layer.setRenderer(source_layer.renderer().clone())
-                        if results:
-                            results['warnings'].append(f"  ↳ Updated raster renderer for '{existing_layer.name()}'")
-                    except Exception as e:
-                        if results:
-                            results['warnings'].append(f"  ↳ Could not update raster renderer: {str(e)}")
-            
-            # Restore filter if we preserved it
-            if existing_filter and preserve_layer_filters:
-                try:
-                    if hasattr(existing_layer, 'setSubsetString'):
-                        success = existing_layer.setSubsetString(existing_filter)
-                        if success and results:
-                            results['warnings'].append(f"  ↳ Restored filter for '{existing_layer.name()}'")
-                except Exception as e:
-                    if results:
-                        results['warnings'].append(f"  ↳ Error restoring filter: {str(e)}")
-            
-            # Verify auxiliary data is preserved (only for vector layers)
-            if preserve_auxiliary_tables and source_layer.type() == QgsMapLayer.VectorLayer:
-                try:
-                    aux_layer = existing_layer.auxiliaryLayer()
-                    if aux_layer and aux_layer.featureCount() > 0:
-                        if results:
-                            results['warnings'].append(
-                                f"  ↳ ✓ Auxiliary data preserved ({aux_layer.featureCount()} features)"
-                            )
-                except Exception as e:
-                    if results:
-                        results['warnings'].append(f"  ↳ Error checking auxiliary data: {str(e)}")
-            
-            return True
-        
-        except Exception as e:
-            if results:
-                results['errors'].append(f"Error updating symbology only: {str(e)}")
-            print(f"Error updating symbology only: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    @staticmethod
-    def _add_new_layer_to_project(
-        source_layer: QgsMapLayer,
-        target_project: QgsProject,
-        copy_symbology: bool,
-        results: dict = None
-    ) -> bool:
-        """
-        Add a new layer to the project (layer doesn't exist yet).
-        
-        Args:
-            source_layer: The source layer to add
-            target_project: The project to add it to
-            copy_symbology: Whether to copy symbology
-            results: Optional results dict for messages
-        
-        Returns:
-            bool: True if successful
-        """
-        try:
-            # Create XML document to serialize layer
-            doc = QDomDocument("layer")
-            context = QgsReadWriteContext()
-            
-            # Write layer to XML
-            layer_elem = doc.createElement("maplayer")
-            doc.appendChild(layer_elem)
-            
-            if not source_layer.writeLayerXml(layer_elem, doc, context):
-                if results:
-                    results['errors'].append(f"Failed to serialize layer '{source_layer.name()}'")
-                return False
-            
-            # Create new layer from XML
-            if source_layer.type() == QgsMapLayer.VectorLayer:
-                new_layer = QgsVectorLayer()
-            elif source_layer.type() == QgsMapLayer.RasterLayer:
-                new_layer = QgsRasterLayer()
-            else:
-                if results:
-                    results['errors'].append(f"Unsupported layer type for '{source_layer.name()}'")
-                return False
-            
-            # Read layer from XML
-            if not new_layer.readLayerXml(layer_elem, context):
-                if results:
-                    results['errors'].append(f"Failed to deserialize layer '{source_layer.name()}'")
-                return False
-            
-            # Set layer name
-            new_layer.setName(source_layer.name())
-            
-            # Add to project (but not to layer tree yet)
-            if not target_project.addMapLayer(new_layer, False):
-                if results:
-                    results['errors'].append(f"Failed to add layer '{source_layer.name()}' to project")
-                return False
-            
-            # Add to layer tree root
-            root = target_project.layerTreeRoot()
-            root.addLayer(new_layer)
-            
-            # Copy symbology if requested
-            if copy_symbology:
-                if source_layer.type() == QgsMapLayer.VectorLayer:
-                    if source_layer.renderer():
-                        try:
-                            new_layer.setRenderer(source_layer.renderer().clone())
-                        except Exception as e:
-                            if results:
-                                results['warnings'].append(f"Could not copy renderer: {str(e)}")
-                    
-                    if source_layer.labeling():
-                        try:
-                            new_layer.setLabeling(source_layer.labeling().clone())
-                            new_layer.setLabelsEnabled(source_layer.labelsEnabled())
-                        except Exception as e:
-                            if results:
-                                results['warnings'].append(f"Could not copy labeling: {str(e)}")
-                
-                elif source_layer.type() == QgsMapLayer.RasterLayer:
-                    if source_layer.renderer():
-                        try:
-                            new_layer.setRenderer(source_layer.renderer().clone())
-                        except Exception as e:
-                            if results:
-                                results['warnings'].append(f"Could not copy raster renderer: {str(e)}")
-            
-            if results:
-                results['warnings'].append(f"Added new layer '{source_layer.name()}'")
-            
-            return True
-        
-        except Exception as e:
-            if results:
-                results['errors'].append(f"Error adding new layer: {str(e)}")
-            print(f"Error adding new layer: {e}")
-            import traceback
-            traceback.print_exc()
-            return False

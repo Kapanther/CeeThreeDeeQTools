@@ -370,12 +370,16 @@ class PackageLayerUpdaterLogic:
                 results['warnings'].append(f"  Latest: {new_history_entry}")
             
             # Write the layer to the geopackage WITH the new metadata
+            # Use NATIVE geopackage writing - let QGIS/GDAL handle everything
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = "GPKG"
             options.layerName = source_layer.name()
             options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
-            options.layerMetadata = layer_metadata  # Pass metadata directly in options
+            options.layerMetadata = layer_metadata
             options.saveMetadata = True
+            
+            # Don't set any custom options - use defaults
+            # This ensures native geopackage behavior
             
             error = QgsVectorFileWriter.writeAsVectorFormatV3(
                 source_layer,
@@ -394,10 +398,64 @@ class PackageLayerUpdaterLogic:
             if results:
                 results['warnings'].append(f"✓ Vector layer '{source_layer.name()}' written to geopackage")
             
-            # Verify the history was saved
+            # Verify the field structure matches
             import time
-            time.sleep(0.15)  # Delay to ensure write is complete
+            time.sleep(0.15)
             
+            # Load the layer back and check field order
+            uri = f"{gpkg_path}|layername={source_layer.name()}"
+            check_layer = QgsVectorLayer(uri, "check", "ogr")
+            
+            if check_layer.isValid():
+                # Get source field names
+                source_field_names = [f.name() for f in source_layer.fields()]
+                
+                # Get geopackage field names
+                gpkg_field_names = [f.name() for f in check_layer.fields()]
+                
+                # Check for field count mismatch
+                if len(source_field_names) != len(gpkg_field_names):
+                    if results:
+                        results['warnings'].append(
+                            f"⚠ Field count mismatch for '{source_layer.name()}': "
+                            f"source has {len(source_field_names)} fields, geopackage has {len(gpkg_field_names)} fields"
+                        )
+                
+                # Check if field names and order match
+                if source_field_names != gpkg_field_names:
+                    if results:
+                        results['warnings'].append(
+                            f"⚠ Field structure mismatch detected for '{source_layer.name()}'!"
+                        )
+                        results['warnings'].append(f"  Source fields: {', '.join(source_field_names)}")
+                        results['warnings'].append(f"  Geopackage fields: {', '.join(gpkg_field_names)}")
+                        
+                        # Try to identify what changed
+                        missing_in_gpkg = set(source_field_names) - set(gpkg_field_names)
+                        extra_in_gpkg = set(gpkg_field_names) - set(source_field_names)
+                        
+                        if missing_in_gpkg:
+                            results['warnings'].append(f"  Missing in geopackage: {', '.join(missing_in_gpkg)}")
+                        if extra_in_gpkg:
+                            results['warnings'].append(f"  Extra in geopackage: {', '.join(extra_in_gpkg)}")
+                else:
+                    if results:
+                        results['warnings'].append(
+                            f"✓ Field structure verified for '{source_layer.name()}' ({len(source_field_names)} fields match)"
+                        )
+                
+                # Verify a sample feature to ensure data alignment
+                source_feature_count = source_layer.featureCount()
+                gpkg_feature_count = check_layer.featureCount()
+                
+                if source_feature_count != gpkg_feature_count:
+                    if results:
+                        results['warnings'].append(
+                            f"⚠ Feature count mismatch for '{source_layer.name()}': "
+                            f"source has {source_feature_count}, geopackage has {gpkg_feature_count}"
+                        )
+            
+            # Verify the history was saved
             saved_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
             if saved_history and len(saved_history) == len(updated_history):
                 if results:
