@@ -35,7 +35,7 @@ class PackageLayerUpdaterLogic:
         
         Args:
             layer_ids: List of layer IDs from the active project
-            target_geopackages: List of geopackage file paths to update
+            target_geopackages: List of geopackage file paths to update (absolute paths)
             progress_callback: Optional callback function(message, progress)
             update_new_only: Only update layers that have been modified since last update
             fix_fids: Fix duplicate FID values by renumbering
@@ -48,6 +48,7 @@ class PackageLayerUpdaterLogic:
             'geopackages_updated': 0,
             'layers_updated': 0,
             'layers_skipped': 0,
+            'layers_not_found': 0,
             'fids_fixed': 0,
             'errors': [],
             'warnings': []
@@ -70,20 +71,41 @@ class PackageLayerUpdaterLogic:
             results['errors'].append("No valid layers to export")
             return results
         
-        total_steps = len(target_geopackages) * len(layers_to_export)
+        total_steps = len(target_geopackages)
         current_step = 0
         
-        # Process each geopackage
-        for gpkg_path in target_geopackages:
+        # Track which layers were never found in any geopackage
+        layers_found_tracker = {layer.name(): False for layer in layers_to_export}
+        
+        # Helper to get display-friendly path (relative if possible)
+        def get_display_path(abs_path):
             try:
+                project_path = project.fileName()
+                if project_path:
+                    project_dir = os.path.dirname(project_path)
+                    rel_path = os.path.relpath(abs_path, project_dir)
+                    if not rel_path.startswith('..'):
+                        return rel_path
+                return os.path.basename(abs_path)  # Fallback to basename
+            except Exception:
+                return os.path.basename(abs_path)
+        
+        # Process each geopackage
+        for gpkg_idx, gpkg_path in enumerate(target_geopackages):
+            try:
+                current_step = gpkg_idx
+                
+                # Get display-friendly path for progress messages
+                display_path = get_display_path(gpkg_path)
+                
                 if progress_callback:
                     progress_callback(
-                        f"Processing geopackage: {os.path.basename(gpkg_path)}", 
+                        f"Processing geopackage {gpkg_idx + 1}/{len(target_geopackages)}: {display_path}", 
                         int((current_step / total_steps) * 100)
                     )
                 
                 if not os.path.exists(gpkg_path):
-                    results['errors'].append(f"Geopackage not found: {gpkg_path}")
+                    results['errors'].append(f"Geopackage not found: {display_path}")
                     continue
                 
                 gpkg_modified = False
@@ -92,26 +114,17 @@ class PackageLayerUpdaterLogic:
                 gpkg_layers = PackageLayerUpdaterLogic._get_geopackage_layers(gpkg_path)
                 
                 if not gpkg_layers:
-                    results['warnings'].append(f"No layers found in geopackage: {os.path.basename(gpkg_path)}")
+                    results['warnings'].append(f"No layers found in geopackage: {display_path}")
                     continue
-                
-                results['warnings'].append(
-                    f"Found {len(gpkg_layers)} layers in {os.path.basename(gpkg_path)}: {', '.join(gpkg_layers)}"
-                )
                 
                 # Update each matching layer
                 for layer in layers_to_export:
-                    current_step += 1
-                    
                     try:
-                        if progress_callback:
-                            progress_callback(
-                                f"Checking layer '{layer.name()}' in {os.path.basename(gpkg_path)}", 
-                                int((current_step / total_steps) * 100)
-                            )
-                        
                         # Check if layer name exists in geopackage
                         if layer.name() in gpkg_layers:
+                            # Mark this layer as found
+                            layers_found_tracker[layer.name()] = True
+                            
                             # Check if we should skip this layer based on modification date
                             if update_new_only:
                                 should_update = PackageLayerUpdaterLogic._should_update_layer(
@@ -120,24 +133,27 @@ class PackageLayerUpdaterLogic:
                                 if not should_update:
                                     results['layers_skipped'] += 1
                                     results['warnings'].append(
-                                        f"⊘ Skipped '{layer.name()}' in {os.path.basename(gpkg_path)} (not modified since last update)"
+                                        f"⊘ Skipped '{layer.name()}' in {display_path} (not modified since last update)"
                                     )
                                     continue
                         
-                            # Check for duplicate FIDs before updating (only for vector layers)
+                            # ALWAYS check for FID problems before updating (only for vector layers)
                             from qgis.core import QgsMapLayer
                             if layer.type() == QgsMapLayer.VectorLayer:
                                 fid_check = PackageLayerUpdaterLogic._check_and_fix_duplicate_fids(
                                     layer, fix_fids, results
                                 )
                                 
+                                # If FID check fails, ALWAYS skip the layer
                                 if not fid_check['can_proceed']:
                                     results['layers_skipped'] += 1
                                     results['warnings'].append(
-                                        f"⊘ Skipped '{layer.name()}' in {os.path.basename(gpkg_path)}: {fid_check['message']}"
+                                        f"⊘ Skipped '{layer.name()}' in {display_path}: {fid_check['message']}"
+
                                     )
                                     continue
                                 
+                                # If FIDs were fixed, report it
                                 if fid_check['fixed_count'] > 0:
                                     results['fids_fixed'] += fid_check['fixed_count']
                                     results['warnings'].append(
@@ -150,27 +166,38 @@ class PackageLayerUpdaterLogic:
                                 results['layers_updated'] += 1
                                 gpkg_modified = True
                                 results['warnings'].append(
-                                    f"✓ Updated layer '{layer.name()}' in {os.path.basename(gpkg_path)}"
+                                    f"✓ Updated '{layer.name()}' in {display_path}"
                                 )
                             else:
                                 results['warnings'].append(
-                                    f"✗ Failed to update layer '{layer.name()}' in {os.path.basename(gpkg_path)}"
+                                    f"✗ Failed to update '{layer.name()}' in {display_path}"
                                 )
-                        else:
-                            results['warnings'].append(
-                                f"Layer '{layer.name()}' not found in {os.path.basename(gpkg_path)}"
-                            )
                     
                     except Exception as layer_error:
                         results['errors'].append(
-                            f"Error updating layer '{layer.name()}' in {os.path.basename(gpkg_path)}: {str(layer_error)}"
+                            f"Error updating layer '{layer.name()}' in {display_path}: {str(layer_error)}"
                         )
                 
                 if gpkg_modified:
                     results['geopackages_updated'] += 1
             
             except Exception as gpkg_error:
-                results['errors'].append(f"Error processing geopackage {gpkg_path}: {str(gpkg_error)}")
+                results['errors'].append(f"Error processing geopackage {get_display_path(gpkg_path)}: {str(gpkg_error)}")
+        
+        # Final progress update
+        if progress_callback:
+            progress_callback(
+                f"Completed processing {len(target_geopackages)} geopackage(s)", 
+                100
+            )
+        
+        # After all geopackages, check which layers were never found
+        layers_not_found = [name for name, found in layers_found_tracker.items() if not found]
+        if layers_not_found:
+            results['layers_not_found'] = len(layers_not_found)
+            results['warnings'].append(
+                f"⚠ {len(layers_not_found)} layer(s) not found in any geopackage: {', '.join(layers_not_found)}"
+            )
         
         if results['errors']:
             results['success'] = False
@@ -309,6 +336,7 @@ class PackageLayerUpdaterLogic:
     ) -> bool:
         """
         Update a vector layer in a geopackage with data from the source layer.
+        Uses overwrite mode with retry logic to prevent data loss.
         
         Args:
             source_layer: The vector layer from the active project
@@ -318,30 +346,20 @@ class PackageLayerUpdaterLogic:
         Returns:
             bool: True if successful
         """
+        import time
+        
         try:
-            # First, preserve the existing layer's metadata history from the geopackage
-            existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
-            
-            if results and existing_history:
-                results['warnings'].append(f"Preserved {len(existing_history)} existing history entries for '{source_layer.name()}'")
-            
-            # Delete the existing layer in the geopackage
-            ds = ogr.Open(gpkg_path, 1)  # 1 = read-write
-            if ds is None:
+            # Check if geopackage file is writable
+            if not os.access(gpkg_path, os.W_OK):
                 if results:
-                    results['errors'].append(f"Could not open geopackage for writing: {gpkg_path}")
+                    results['errors'].append(
+                        f"Geopackage is read-only or locked: {os.path.basename(gpkg_path)}\n"
+                        f"  Check if it's open in another application or if file permissions are read-only."
+                    )
                 return False
             
-            # Find and delete the layer
-            for i in range(ds.GetLayerCount()):
-                layer = ds.GetLayerByIndex(i)
-                if layer and layer.GetName() == source_layer.name():
-                    ds.DeleteLayer(i)
-                    if results:
-                        results['warnings'].append(f"Deleted existing vector layer '{source_layer.name()}' from geopackage")
-                    break
-            
-            ds = None
+            # First, preserve the existing layer's metadata history from the geopackage
+            existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
             
             # Create new history entry
             new_history_entry = PackageLayerUpdaterLogic._create_history_entry(source_layer)
@@ -349,7 +367,7 @@ class PackageLayerUpdaterLogic:
             # Combine existing history with new entry
             updated_history = existing_history + [new_history_entry] if existing_history else [new_history_entry]
             
-            # Create a NEW metadata object with the updated history
+            # Create metadata object with the updated history
             layer_metadata = QgsLayerMetadata()
             
             # Copy basic metadata from source layer
@@ -361,119 +379,105 @@ class PackageLayerUpdaterLogic:
             layer_metadata.setCategories(source_metadata.categories())
             layer_metadata.setContacts(source_metadata.contacts())
             layer_metadata.setLinks(source_metadata.links())
-            
-            # Set the updated history
             layer_metadata.setHistory(updated_history)
             
-            if results:
-                results['warnings'].append(f"Created metadata with {len(updated_history)} history entries")
-                results['warnings'].append(f"  Latest: {new_history_entry}")
-            
-            # Write the layer to the geopackage WITH the new metadata
-            # Use NATIVE geopackage writing - let QGIS/GDAL handle everything
+            # Prepare write options - use OVERWRITE mode (doesn't delete first!)
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = "GPKG"
             options.layerName = source_layer.name()
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer  # Overwrites without deleting
             options.layerMetadata = layer_metadata
             options.saveMetadata = True
             
-            # Don't set any custom options - use defaults
-            # This ensures native geopackage behavior
+            # Retry logic: attempt write up to 3 times with delays
+            max_attempts = 3
+            attempt = 0
+            last_error = None
             
-            error = QgsVectorFileWriter.writeAsVectorFormatV3(
-                source_layer,
-                gpkg_path,
-                QgsCoordinateTransformContext(),
-                options
-            )
-            
-            if error[0] != QgsVectorFileWriter.NoError:
-                if results:
-                    results['errors'].append(
-                        f"Error writing vector layer '{source_layer.name()}' to geopackage: {error[1]}"
+            while attempt < max_attempts:
+                attempt += 1
+                
+                try:
+                    # Small delay before each attempt (except first)
+                    if attempt > 1:
+                        time.sleep(0.5 * attempt)  # 0.5s, 1.0s, 1.5s
+                        if results:
+                            results['warnings'].append(
+                                f"  Retry attempt {attempt}/{max_attempts} for '{source_layer.name()}'..."
+                            )
+                    
+                    # Try to write
+                    error = QgsVectorFileWriter.writeAsVectorFormatV3(
+                        source_layer,
+                        gpkg_path,
+                        QgsCoordinateTransformContext(),
+                        options
                     )
-                return False
+                    
+                    if error[0] == QgsVectorFileWriter.NoError:
+                        # Success! Verify the result
+                        time.sleep(0.15)  # Brief delay for filesystem
+                        
+                        # Verify feature count
+                        uri = f"{gpkg_path}|layername={source_layer.name()}"
+                        check_layer = QgsVectorLayer(uri, "check", "ogr")
+                        
+                        if check_layer.isValid():
+                            source_count = source_layer.featureCount()
+                            gpkg_count = check_layer.featureCount()
+                            
+                            if source_count != gpkg_count:
+                                if results:
+                                    results['warnings'].append(
+                                        f"⚠ Feature count mismatch for '{source_layer.name()}': "
+                                        f"source has {source_count}, geopackage has {gpkg_count}"
+                                    )
+                        
+                        return True  # Success!
+                    
+                    else:
+                        last_error = error[1]
+                        # Check if it's a lock/readonly error that might resolve with retry
+                        if "readonly" in last_error.lower() or "locked" in last_error.lower():
+                            if attempt < max_attempts:
+                                continue  # Retry
+                        else:
+                            # Other error - don't retry
+                            break
+                
+                except Exception as e:
+                    last_error = str(e)
+                    if attempt < max_attempts:
+                        continue  # Retry
+                    else:
+                        break
             
+            # All attempts failed
             if results:
-                results['warnings'].append(f"✓ Vector layer '{source_layer.name()}' written to geopackage")
-            
-            # Verify the field structure matches
-            import time
-            time.sleep(0.15)
-            
-            # Load the layer back and check field order
-            uri = f"{gpkg_path}|layername={source_layer.name()}"
-            check_layer = QgsVectorLayer(uri, "check", "ogr")
-            
-            if check_layer.isValid():
-                # Get source field names
-                source_field_names = [f.name() for f in source_layer.fields()]
-                
-                # Get geopackage field names
-                gpkg_field_names = [f.name() for f in check_layer.fields()]
-                
-                # Check for field count mismatch
-                if len(source_field_names) != len(gpkg_field_names):
-                    if results:
-                        results['warnings'].append(
-                            f"⚠ Field count mismatch for '{source_layer.name()}': "
-                            f"source has {len(source_field_names)} fields, geopackage has {len(gpkg_field_names)} fields"
-                        )
-                
-                # Check if field names and order match
-                if source_field_names != gpkg_field_names:
-                    if results:
-                        results['warnings'].append(
-                            f"⚠ Field structure mismatch detected for '{source_layer.name()}'!"
-                        )
-                        results['warnings'].append(f"  Source fields: {', '.join(source_field_names)}")
-                        results['warnings'].append(f"  Geopackage fields: {', '.join(gpkg_field_names)}")
-                        
-                        # Try to identify what changed
-                        missing_in_gpkg = set(source_field_names) - set(gpkg_field_names)
-                        extra_in_gpkg = set(gpkg_field_names) - set(source_field_names)
-                        
-                        if missing_in_gpkg:
-                            results['warnings'].append(f"  Missing in geopackage: {', '.join(missing_in_gpkg)}")
-                        if extra_in_gpkg:
-                            results['warnings'].append(f"  Extra in geopackage: {', '.join(extra_in_gpkg)}")
+                error_msg = last_error or "Unknown error"
+                if "readonly" in error_msg.lower() or "locked" in error_msg.lower():
+                    results['errors'].append(
+                        f"Cannot write to geopackage (locked or read-only after {max_attempts} attempts): {os.path.basename(gpkg_path)}\n"
+                        f"  Layer: '{source_layer.name()}'\n"
+                        f"  Close the geopackage in other applications or check file permissions.\n"
+                        f"  Error: {error_msg}"
+                    )
                 else:
-                    if results:
-                        results['warnings'].append(
-                            f"✓ Field structure verified for '{source_layer.name()}' ({len(source_field_names)} fields match)"
-                        )
-                
-                # Verify a sample feature to ensure data alignment
-                source_feature_count = source_layer.featureCount()
-                gpkg_feature_count = check_layer.featureCount()
-                
-                if source_feature_count != gpkg_feature_count:
-                    if results:
-                        results['warnings'].append(
-                            f"⚠ Feature count mismatch for '{source_layer.name()}': "
-                            f"source has {source_feature_count}, geopackage has {gpkg_feature_count}"
-                        )
-            
-            # Verify the history was saved
-            saved_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
-            if saved_history and len(saved_history) == len(updated_history):
-                if results:
-                    results['warnings'].append(
-                        f"✓ Verified: History in geopackage has {len(saved_history)} entries (matches expected)"
-                    )
-            elif saved_history:
-                if results:
-                    results['warnings'].append(
-                        f"⚠ History count mismatch: expected {len(updated_history)}, found {len(saved_history)}"
-                    )
-            else:
-                if results:
-                    results['warnings'].append(
-                        f"⚠ Could not verify history in geopackage"
+                    results['errors'].append(
+                        f"Error writing vector layer '{source_layer.name()}' to geopackage (after {max_attempts} attempts): {error_msg}"
                     )
             
-            return True
+            return False
+        
+        except sqlite3.OperationalError as e:
+            if results:
+                results['errors'].append(
+                    f"SQLite error for '{source_layer.name()}': {str(e)}\n"
+                    f"  Geopackage: {os.path.basename(gpkg_path)}\n"
+                    f"  The file may be locked or corrupted."
+                )
+            print(f"SQLite error updating vector layer: {e}")
+            return False
         
         except Exception as e:
             if results:
@@ -503,9 +507,6 @@ class PackageLayerUpdaterLogic:
             # First, preserve the existing layer's metadata history
             existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
             
-            if results and existing_history:
-                results['warnings'].append(f"Preserved {len(existing_history)} existing history entries for '{source_layer.name()}'")
-            
             # Get the source raster file path
             source_path = source_layer.source().split('|')[0]
             
@@ -519,9 +520,6 @@ class PackageLayerUpdaterLogic:
             
             # Combine existing history with new entry
             updated_history = existing_history + [new_history_entry] if existing_history else [new_history_entry]
-            
-            if results:
-                results['warnings'].append(f"Updating raster '{source_layer.name()}' in geopackage (will overwrite if exists)")
             
             # Use QGIS processing framework's gdal:translate
             # APPEND_SUBDATASET will overwrite if the raster table already exists
@@ -543,10 +541,6 @@ class PackageLayerUpdaterLogic:
                 if results:
                     results['errors'].append(f"Failed to write raster '{source_layer.name()}' to geopackage")
                 return False
-            
-            if results:
-                results['warnings'].append(f"✓ Raster layer '{source_layer.name()}' written to geopackage")
-                results['warnings'].append(f"  Latest: {new_history_entry}")
             
             # Write history metadata to the geopackage contents table
             import time
@@ -581,25 +575,11 @@ class PackageLayerUpdaterLogic:
     ) -> bool:
         """
         Write history metadata for a raster layer directly to the geopackage.
-        Note: Raster layers in geopackages don't support the rich metadata/history structure
-        that vector layers have. History is stored in gpkg_contents.description field,
-        which appears in Layer Properties → Information → More information → DESCRIPTION.
-        
-        Args:
-            gpkg_path: Path to the geopackage
-            layer_name: Name of the raster layer
-            history_entries: List of history entry strings
-            results: Optional results dict for messages
-        
-        Returns:
-            bool: True if successful
         """
         try:
-            # Connect to the geopackage database
             conn = sqlite3.connect(gpkg_path)
             cursor = conn.cursor()
             
-            # Check if our specific table exists
             cursor.execute(
                 "SELECT table_name FROM gpkg_contents WHERE table_name = ?",
                 (layer_name,)
@@ -607,7 +587,6 @@ class PackageLayerUpdaterLogic:
             existing_row = cursor.fetchone()
             
             if not existing_row:
-                # Try with LIKE pattern in case the table name has been modified
                 cursor.execute(
                     "SELECT table_name FROM gpkg_contents WHERE table_name LIKE ?",
                     (f"%{layer_name}%",)
@@ -616,18 +595,12 @@ class PackageLayerUpdaterLogic:
                 
                 if like_matches:
                     layer_name = like_matches[0][0]
-                    if results:
-                        results['warnings'].append(f"Using table name '{layer_name}' for history update")
                 else:
-                    if results:
-                        results['warnings'].append(f"Raster table '{layer_name}' not found in gpkg_contents")
                     conn.close()
                     return False
             
-            # Format history as a text block with prefix
             history_text = "HISTORY:\n" + "\n".join(history_entries)
             
-            # Update the description field in gpkg_contents
             cursor.execute(
                 "UPDATE gpkg_contents SET description = ? WHERE table_name = ?",
                 (history_text, layer_name)
@@ -637,59 +610,27 @@ class PackageLayerUpdaterLogic:
             conn.commit()
             conn.close()
             
-            if rows_affected > 0:
-                if results:
-                    results['warnings'].append(
-                        f"✓ Wrote {len(history_entries)} history entries for raster '{layer_name}'"
-                    )
-                    results['warnings'].append(
-                        f"  Note: Raster history is in Layer Properties → Information → DESCRIPTION field"
-                    )
-                return True
-            else:
-                if results:
-                    results['warnings'].append(
-                        f"No rows updated when writing history for raster '{layer_name}'"
-                    )
-                return False
+            return rows_affected > 0
         
         except Exception as e:
             if results:
                 results['errors'].append(f"Error writing raster history to geopackage: {str(e)}")
             print(f"Error writing raster history: {e}")
-            import traceback
-            traceback.print_exc()
             return False
 
     @staticmethod
     def _get_layer_history(gpkg_path: str, layer_name: str) -> list:
-        """
-        Get the existing history from a layer's metadata in the geopackage.
-        First tries to read from the layer's QGIS metadata, then falls back to gpkg_contents description.
-        
-        Args:
-            gpkg_path: Path to the geopackage
-            layer_name: Name of the layer
-        
-        Returns:
-            list: List of history entries (strings)
-        """
+        """Get the existing history from a layer's metadata in the geopackage."""
         try:
-            # Try to load the layer and read its QGIS metadata first
             uri = f"{gpkg_path}|layername={layer_name}"
             layer = QgsVectorLayer(uri, layer_name, "ogr")
             
             if layer.isValid():
                 metadata = layer.metadata()
                 history_list = metadata.history()
-                
                 if history_list:
-                    print(f"Found {len(history_list)} history entries in layer metadata for '{layer_name}':")
-                    for entry in history_list:
-                        print(f"  - {entry}")
                     return history_list
             
-            # Fallback: try to read from gpkg_contents description field
             conn = sqlite3.connect(gpkg_path)
             cursor = conn.cursor()
             
@@ -705,12 +646,8 @@ class PackageLayerUpdaterLogic:
                 if description.startswith("HISTORY:"):
                     history_text = description[8:]
                     history_list = [h.strip() for h in history_text.split('\n') if h.strip()]
-                    print(f"Found {len(history_list)} history entries in gpkg_contents for '{layer_name}':")
-                    for entry in history_list:
-                        print(f"  - {entry}")
                     return history_list
             
-            print(f"No history found for '{layer_name}'")
             return []
         
         except Exception as e:
@@ -718,141 +655,65 @@ class PackageLayerUpdaterLogic:
             return []
 
     @staticmethod
-    def _create_history_entry(source_layer: QgsVectorLayer) -> str:
-        """
-        Create a history entry string for the layer update.
-        
-        Args:
-            source_layer: The source layer being written
-        
-        Returns:
-            str: History entry in format "Updated;YYYY-MM-DD@HH-MM-SS;User;username;Source;path;DateModified;file_date"
-        """
+    def _create_history_entry(source_layer) -> str:
+        """Create a history entry string for the layer update."""
         timestamp = datetime.now().strftime("%Y-%m-%d@%H-%M-%S")
         source_path = source_layer.source()
         user = os.getenv('USERNAME') or os.getenv('USER') or 'UnknownUser'
         
-        # Get the file modified date from the source file
         file_modified_date = "Unknown"
         try:
-            # Extract the actual file path from the source
-            # Handle cases like "C:/path/to/file.shp" or "C:/path/to/file.gpkg|layername=layer"
-            file_path = source_path.split('|')[0]  # Remove any layername parameter
-            
+            file_path = source_path.split('|')[0]
             if os.path.exists(file_path):
-                # Get the modification time and format it
                 mtime = os.path.getmtime(file_path)
                 file_modified_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d@%H-%M-%S")
-        except Exception as e:
-            print(f"Could not get file modified date: {e}")
-            file_modified_date = "Unknown"
+        except Exception:
+            pass
         
-        # Format the history entry to include all details
         return f"Updated;{timestamp};User;{user};DateModified;{file_modified_date};Source;{source_path}"
     
     @staticmethod
     def _should_update_layer(
-        source_layer: QgsVectorLayer,
+        source_layer,
         gpkg_path: str,
         results: dict = None
     ) -> bool:
-        """
-        Determine if a layer should be updated based on modification dates.
-        
-        Args:
-            source_layer: The layer from the active project
-            gpkg_path: Path to the geopackage
-            results: Optional results dict for messages
-        
-        Returns:
-            bool: True if layer should be updated, False if it can be skipped
-        """
+        """Determine if a layer should be updated based on modification dates."""
         try:
-            # Get the source file's modification date
             source_path = source_layer.source().split('|')[0]
             
             if not os.path.exists(source_path):
-                if results:
-                    results['warnings'].append(f"Cannot check modification date for '{source_layer.name()}': source file not found")
-                return True  # Update anyway if we can't verify
+                return True
             
             source_mtime = os.path.getmtime(source_path)
             source_date = datetime.fromtimestamp(source_mtime)
             
-            if results:
-                results['warnings'].append(f"Source file '{source_layer.name()}' modified: {source_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # Get the existing history from the geopackage
             existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
             
             if not existing_history:
-                # No history = new layer, should update
-                if results:
-                    results['warnings'].append(f"Layer '{source_layer.name()}' has no history, will update")
                 return True
             
-            # Parse the most recent history entry
-            latest_entry = existing_history[-1]  # Last entry is most recent
+            latest_entry = existing_history[-1]
             parsed = PackageLayerUpdaterLogic._parse_history_entry(latest_entry)
             
             if not parsed or 'date_modified' not in parsed or parsed['date_modified'] is None:
-                if results:
-                    results['warnings'].append(f"Cannot parse history date for '{source_layer.name()}', will update")
-                return True  # Update if we can't parse history
+                return True
             
-            # Get the history date
             history_date = parsed['date_modified']
-            
-            if results:
-                results['warnings'].append(f"History date for '{source_layer.name()}': {history_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # Compare modification dates with tolerance of 2 seconds (for filesystem precision)
             time_diff = (source_date - history_date).total_seconds()
             
-            if results:
-                results['warnings'].append(f"Time difference: {time_diff:.1f} seconds")
-            
-            if time_diff > 2.0:  # Source is more than 2 seconds newer
-                if results:
-                    results['warnings'].append(
-                        f"✓ Layer '{source_layer.name()}' WILL UPDATE: "
-                        f"source is {time_diff:.1f}s newer than history"
-                    )
-                return True
-            else:
-                if results:
-                    results['warnings'].append(
-                        f"⊘ Layer '{source_layer.name()}' WILL SKIP: "
-                        f"source is not significantly newer (diff: {time_diff:.1f}s)"
-                    )
-                return False
+            return time_diff > 2.0
         
-        except Exception as e:
-            if results:
-                results['warnings'].append(f"Error checking if '{source_layer.name()}' should update: {str(e)}")
-            print(f"Error in _should_update_layer: {e}")
-            import traceback
-            traceback.print_exc()
-            return True  # Update anyway if there's an error
+        except Exception:
+            return True
 
     @staticmethod
     def _parse_history_entry(history_entry: str) -> dict:
-        """
-        Parse a history entry string into a structured dictionary.
-        
-        Args:
-            history_entry: History string in format "Updated;timestamp;User;username;DateModified;file_date;Source;path"
-        
-        Returns:
-            dict: Parsed history with keys: action, timestamp, user, date_modified, source
-                  Returns empty dict if parsing fails
-        """
+        """Parse a history entry string into a structured dictionary."""
         try:
-            # Split by semicolon
             parts = history_entry.split(';')
             
-            if len(parts) < 8:  # Need at least: Updated, timestamp, User, username, DateModified, date, Source, path
-                print(f"History entry has insufficient parts: {history_entry}")
+            if len(parts) < 8:
                 return {}
             
             parsed = {
@@ -863,34 +724,29 @@ class PackageLayerUpdaterLogic:
                 'source': None
             }
             
-            # Parse timestamp (parts[1])
             try:
                 timestamp_str = parts[1].strip()
                 parsed['timestamp'] = datetime.strptime(timestamp_str, "%Y-%m-%d@%H-%M-%S")
-            except Exception as e:
-                print(f"Could not parse timestamp '{parts[1]}': {e}")
+            except Exception:
+                pass
             
-            # Parse user (parts[3])
             if len(parts) > 3:
                 parsed['user'] = parts[3].strip()
             
-            # Parse date modified (parts[5])
             if len(parts) > 5:
                 try:
                     date_modified_str = parts[5].strip()
                     if date_modified_str != "Unknown":
                         parsed['date_modified'] = datetime.strptime(date_modified_str, "%Y-%m-%d@%H-%M-%S")
-                except Exception as e:
-                    print(f"Could not parse date modified '{parts[5]}': {e}")
+                except Exception:
+                    pass
             
-            # Parse source (parts[7])
             if len(parts) > 7:
                 parsed['source'] = parts[7].strip()
             
             return parsed
         
-        except Exception as e:
-            print(f"Error parsing history entry: {e}")
+        except Exception:
             return {}
 
     @staticmethod
@@ -900,11 +756,12 @@ class PackageLayerUpdaterLogic:
         results: dict = None
     ) -> dict:
         """
-        Check for duplicate FID values in a layer and optionally fix them.
+        Check for FID validity issues in a layer and optionally fix them.
+        Always checks for problems. Only attempts fixes if fix_fids is True.
         
         Args:
             layer: The vector layer to check
-            fix_fids: Whether to fix duplicate FIDs
+            fix_fids: Whether to attempt to fix FID problems
             results: Optional results dict for messages
         
         Returns:
@@ -920,110 +777,176 @@ class PackageLayerUpdaterLogic:
         }
         
         try:
-            # First, find the FID field index
+            # ALWAYS try to find the FID field (case-insensitive check!)
             fid_field_idx = -1
+            fid_field_name = None
             for idx, field in enumerate(layer.fields()):
-                if field.name().lower() == 'fid':
+                if field.name().upper() == 'FID':  # Changed to uppercase comparison
                     fid_field_idx = idx
+                    fid_field_name = field.name()  # Store actual field name
                     break
             
             if fid_field_idx < 0:
-                # Try using the first primary key field
-                fid_field_name = layer.dataProvider().primaryKeyAttributes()
-                if fid_field_name and len(fid_field_name) > 0:
-                    fid_field_idx = fid_field_name[0]
+                try:
+                    if hasattr(layer.dataProvider(), 'primaryKeyAttributes'):
+                        fid_field_attrs = layer.dataProvider().primaryKeyAttributes()
+                        if fid_field_attrs and len(fid_field_attrs) > 0:
+                            fid_field_idx = fid_field_attrs[0]
+                            fid_field_name = layer.fields()[fid_field_idx].name()
+                except Exception:
+                    pass
             
             if fid_field_idx < 0:
-                result['can_proceed'] = False
-                result['message'] = "Could not identify FID field in layer"
+                # No FID field - this is normal for shapefiles/CSVs without FID
+                # Geopackage will create its own FID during import
+                result['message'] = 'No FID field found (normal for shapefiles/CSVs)'
                 return result
             
-            # Get all features and their FID attribute values
-            fid_map = {}  # Map FID attribute value to list of (feature, feature_index) tuples
+            # Found an FID field - log which one
+            #if results:
+            #    results['warnings'].append(
+            #        f"Found FID field in '{layer.name()}': '{fid_field_name}' at index {fid_field_idx}"
+            #    )
+            
+            # ALWAYS check for NULL values and duplicates
+            fid_map = {}
+            invalid_fid_features = []  # Track features with invalid FIDs (NULL, non-integer, etc.)
             
             for idx, feature in enumerate(layer.getFeatures()):
-                # Get the FID from the attribute field, NOT from feature.id()
                 fid_value = feature.attribute(fid_field_idx)
+                
+                # Check if FID is a valid integer
+                # This catches: None, empty strings, non-numeric strings, floats, etc.
+                is_valid_int = False
+                try:
+                    if fid_value is not None and fid_value != '':
+                        # Try to convert to int and check it's equal (catches floats like 1.5)
+                        int_value = int(fid_value)
+                        # Also check that converting to int didn't change the value (e.g., 1.5 -> 1)
+                        if isinstance(fid_value, int) or (isinstance(fid_value, (float, str)) and float(fid_value) == int_value):
+                            is_valid_int = True
+                            fid_value = int_value  # Normalize to integer
+                except (ValueError, TypeError):
+                    pass  # Invalid - will be caught below
+                
+                if not is_valid_int:
+                    invalid_fid_features.append((feature, idx))
+                    continue  # Skip adding invalid FIDs to fid_map
                 
                 if fid_value not in fid_map:
                     fid_map[fid_value] = []
                 fid_map[fid_value].append((feature, idx))
             
-            # Find duplicate FID values
+            # Find duplicate FID values (excluding invalid FIDs)
             duplicates = {fid: feat_list for fid, feat_list in fid_map.items() if len(feat_list) > 1}
             
-            if not duplicates:
-                result['message'] = 'No duplicate FIDs found'
+            invalid_count = len(invalid_fid_features)
+            
+            # If no problems, we're done
+            if not duplicates and invalid_count == 0:
+                result['message'] = 'No FID problems found'
+                if results:
+                    results['warnings'].append(f"✓ No FID problems in '{layer.name()}'")
                 return result
             
-            total_duplicates = sum(len(feat_list) - 1 for feat_list in duplicates.values())
+            # Problems found - report them
+            if invalid_count > 0 and results:
+                results['warnings'].append(
+                    f"⚠ Found {invalid_count} invalid FID value(s) in '{layer.name()}' (field: '{fid_field_name}')"
+                )
             
+            if duplicates and results:
+                total_duplicates = sum(len(feat_list) - 1 for feat_list in duplicates.values())
+                results['warnings'].append(
+                    f"⚠ Found {len(duplicates)} duplicate FID value(s) in '{layer.name()}' "
+                    f"(total {total_duplicates} duplicate rows, field: '{fid_field_name}')"
+                )
+            
+            # If not fixing, BLOCK the export
             if not fix_fids:
-                # Don't fix - warn and prevent export
+                total_duplicates = sum(len(feat_list) - 1 for feat_list in duplicates.values()) if duplicates else 0
+                problems = []
+                if invalid_count > 0:
+                    problems.append(f"{invalid_count} invalid FID(s)")
+                if duplicates:
+                    problems.append(f"{total_duplicates} duplicate FID(s)")
+                
                 result['can_proceed'] = False
                 result['message'] = (
-                    f"Layer has {total_duplicates} duplicate FID(s). "
-                    f"Enable 'Fix Duplicate FIDs' option to automatically fix, "
+                    f"Layer has {' and '.join(problems)} in field '{fid_field_name}'. "
+                    f"Enable 'Fix Invalid FIDs' option to automatically fix, "
                     f"or manually fix the FIDs in your source data. "
-                    f"Geopackages require unique FIDs."
+                    f"Geopackages require unique, positive integer FID values."
                 )
-                if results:
-                    results['warnings'].append(
-                        f"⚠ Found {len(duplicates)} duplicate FID value(s) in '{layer.name()}' "
-                        f"(total {total_duplicates} duplicate rows)"
-                    )
                 return result
             
-            # Fix the duplicates by renumbering later rows
+            # Attempt to fix the problems by renumbering
             if results:
+                problems = []
+                if invalid_count > 0:
+                    problems.append(f"{invalid_count} invalid")
+                if duplicates:
+                    total_duplicates = sum(len(feat_list) - 1 for feat_list in duplicates.values())
+                    problems.append(f"{total_duplicates} duplicate")
                 results['warnings'].append(
-                    f"Fixing {total_duplicates} duplicate FID(s) in '{layer.name()}'..."
+                    f"Attempting to fix {' and '.join(problems)} FID(s) in '{layer.name()}' (field: '{fid_field_name}')..."
                 )
             
             # Find the maximum FID value to start new numbering from
-            max_fid = max(fid_map.keys())
-            next_available_fid = max_fid + 1
+            max_fid = max(fid_map.keys()) if fid_map else 0
+            next_available_fid = max(max_fid + 1, 1)  # Ensure we start at least from 1
             
             # Check if layer supports editing
-            if not layer.dataProvider().capabilities() & layer.dataProvider().ChangeAttributeValues:
+            provider_caps = layer.dataProvider().capabilities()
+            if not (provider_caps & layer.dataProvider().ChangeAttributeValues):
                 result['can_proceed'] = False
-                result['message'] = f"Layer provider does not support changing attribute values"
+                result['message'] = (
+                    f"Cannot fix FIDs: Layer provider '{layer.dataProvider().name()}' does not support editing. "
+                    f"Manually fix FIDs in source data or use a different data source."
+                )
+                if results:
+                    results['warnings'].append(
+                        f"⚠ Cannot edit '{layer.name()}' to fix FIDs (provider: {layer.dataProvider().name()})"
+                    )
                 return result
             
-            # Start editing
             if not layer.startEditing():
                 result['can_proceed'] = False
-                result['message'] = "Could not start editing session on layer"
+                result['message'] = "Could not start editing session to fix FIDs"
                 return result
             
             fixed_count = 0
             
-            # For each FID value with duplicates, renumber all but the first occurrence
+            # Fix invalid FIDs first
+            for feature, feature_idx in invalid_fid_features:
+                if layer.changeAttributeValue(feature.id(), fid_field_idx, next_available_fid):
+                    fixed_count += 1
+                    next_available_fid += 1
+            
+            # Fix duplicates (renumber all but the first occurrence)
             for fid_value, feat_list in duplicates.items():
-                # Keep the first occurrence, renumber the rest
                 for feature, feature_idx in feat_list[1:]:
-                    # Change the FID attribute value using QGIS feature ID
                     if layer.changeAttributeValue(feature.id(), fid_field_idx, next_available_fid):
                         fixed_count += 1
                         next_available_fid += 1
             
-            # Commit changes
+            # Commit the fixes
             if layer.commitChanges():
                 result['fixed_count'] = fixed_count
-                result['message'] = f'Fixed {fixed_count} duplicate FID(s)'
-                
+                result['message'] = f'Fixed {fixed_count} FID problem(s) in field \'{fid_field_name}\''
+
                 if results:
                     results['warnings'].append(
-                        f"✓ Successfully fixed {fixed_count} duplicate FID(s) in '{layer.name()}'"
+                        f"✓ Fixed {fixed_count} FID problem(s) in '{layer.name()}' (field: '{fid_field_name}')"
                     )
             else:
-                # Get commit errors
                 commit_errors = layer.commitErrors()
-                
-                # Rollback on failure
                 layer.rollBack()
                 result['can_proceed'] = False
-                result['message'] = f'Failed to commit FID fixes: {", ".join(commit_errors)}'
+                result['message'] = (
+                    f"Failed to save FID fixes: {', '.join(commit_errors)}. "
+                    f"Manually fix FIDs in source data."
+                )
                 
                 if results:
                     results['warnings'].append(
@@ -1031,9 +954,8 @@ class PackageLayerUpdaterLogic:
                     )
             
             return result
-        
+
         except Exception as e:
-            # Ensure we rollback on exception
             try:
                 if layer.isEditable():
                     layer.rollBack()
@@ -1041,7 +963,7 @@ class PackageLayerUpdaterLogic:
                 pass
             
             result['can_proceed'] = False
-            result['message'] = f'Exception checking/fixing FIDs: {str(e)}'
+            result['message'] = f'Error checking FIDs: {str(e)}. Manually fix FIDs in source data.'
             
             if results:
                 results['warnings'].append(

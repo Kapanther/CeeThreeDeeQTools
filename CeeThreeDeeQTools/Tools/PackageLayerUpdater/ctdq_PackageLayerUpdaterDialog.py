@@ -151,13 +151,13 @@ class PackageLayerUpdaterDialog(QDialog):
         options_layout.addWidget(self.update_new_only_checkbox)
         
         # Fix FIDs checkbox
-        self.fix_fids_checkbox = QCheckBox("Fix Duplicate FIDs")
+        self.fix_fids_checkbox = QCheckBox("Fix Invalid FIDs")
         self.fix_fids_checkbox.setChecked(False)  # Default to OFF
         self.fix_fids_checkbox.setToolTip(
-            "If checked, duplicate FID values will be automatically fixed by renumbering.\n"
-            "Later rows (assumed to be newer) will have their FIDs changed to the next available number.\n"
-            "If unchecked, layers with duplicate FIDs will be skipped with a warning,\n"
-            "since geopackages require unique FIDs."
+            "If checked, FID problems (duplicates, NULL values, etc.) will be automatically fixed.\n"
+            "Duplicate FIDs will be renumbered to the next available values.\n"
+            "If unchecked, layers with invalid FIDs will be skipped with a warning,\n"
+            "since geopackages require unique, non-NULL FID values."
         )
         options_layout.addWidget(self.fix_fids_checkbox)
         
@@ -255,18 +255,106 @@ class PackageLayerUpdaterDialog(QDialog):
         
         if gpkg_files:
             for gpkg_file in gpkg_files:
-                if gpkg_file not in self.target_geopackages:
-                    self.target_geopackages.append(gpkg_file)
-                    self.geopackages_list.addItem(gpkg_file)
+                # Store as relative path if possible, otherwise absolute
+                stored_path = self._make_portable_path(gpkg_file)
+                
+                # Check for duplicates before adding (compare resolved absolute paths)
+                if not self._is_duplicate_path(stored_path):
+                    self.target_geopackages.append(stored_path)
+                    # Display the path (relative if possible)
+                    display_path = self._get_display_path(stored_path)
+                    self.geopackages_list.addItem(display_path)
                 else:
                     QMessageBox.information(
                         self,
                         "Already Added",
-                        f"This geopackage is already in the list:\n\n{gpkg_file}"
+                        f"This geopackage is already in the list:\n\n{self._get_display_path(stored_path)}"
                     )
             
             self.update_geopackages_count()
-            self.save_geopackages_to_project()  # Save selections when modified
+            self.save_geopackages_to_project()
+
+    def _make_portable_path(self, absolute_path):
+        """
+        Convert an absolute path to a relative path if possible for portability.
+        
+        Args:
+            absolute_path: Absolute path to convert
+        
+        Returns:
+            str: Relative path if within project tree, otherwise absolute path
+        """
+        try:
+            project_path = QgsProject.instance().fileName()
+            if not project_path:
+                return os.path.normpath(absolute_path)
+            
+            project_dir = os.path.dirname(project_path)
+            rel_path = os.path.relpath(absolute_path, project_dir)
+            
+            # Only use relative path if it doesn't go up beyond project dir
+            if not rel_path.startswith('..'):
+                return rel_path
+            else:
+                return os.path.normpath(absolute_path)
+        except Exception:
+            return os.path.normpath(absolute_path)
+
+    def _resolve_to_absolute(self, stored_path):
+        """
+        Resolve a stored path (relative or absolute) to an absolute path.
+        
+        Args:
+            stored_path: Path as stored (may be relative or absolute)
+        
+        Returns:
+            str: Absolute normalized path
+        """
+        try:
+            # If already absolute, just normalize
+            if os.path.isabs(stored_path):
+                return os.path.normpath(stored_path)
+            
+            # Otherwise, resolve relative to project directory
+            project_path = QgsProject.instance().fileName()
+            if project_path:
+                project_dir = os.path.dirname(project_path)
+                return os.path.normpath(os.path.join(project_dir, stored_path))
+            
+            # Fallback: normalize as-is
+            return os.path.normpath(stored_path)
+        except Exception:
+            return os.path.normpath(stored_path)
+
+    def _is_duplicate_path(self, new_path):
+        """
+        Check if a path already exists in the target_geopackages list.
+        
+        Args:
+            new_path: Path to check (may be relative or absolute)
+        
+        Returns:
+            bool: True if path already exists
+        """
+        new_abs = self._resolve_to_absolute(new_path)
+        for existing_path in self.target_geopackages:
+            existing_abs = self._resolve_to_absolute(existing_path)
+            if new_abs == existing_abs:
+                return True
+        return False
+
+    def _get_display_path(self, stored_path):
+        """
+        Get a display-friendly version of a stored path.
+        
+        Args:
+            stored_path: Path as stored (may be relative or absolute)
+        
+        Returns:
+            str: Same path for display (relative paths stay relative, absolute stay absolute)
+        """
+        # For display, we just show what's stored (already portable/relative if possible)
+        return stored_path
 
     def remove_selected_geopackages(self):
         """Remove selected geopackages from the list."""
@@ -277,13 +365,20 @@ class PackageLayerUpdaterDialog(QDialog):
             return
         
         for item in selected_items:
-            gpkg_path = item.text()
-            if gpkg_path in self.target_geopackages:
-                self.target_geopackages.remove(gpkg_path)
+            display_path = item.text()
+            
+            # Find and remove the matching stored path
+            # Compare resolved absolute paths
+            display_abs = self._resolve_to_absolute(display_path)
+            for stored_path in self.target_geopackages[:]:  # Iterate over copy
+                if self._resolve_to_absolute(stored_path) == display_abs:
+                    self.target_geopackages.remove(stored_path)
+                    break
+            
             self.geopackages_list.takeItem(self.geopackages_list.row(item))
         
         self.update_geopackages_count()
-        self.save_geopackages_to_project()  # Save selections when modified
+        self.save_geopackages_to_project()
 
     def clear_all_geopackages(self):
         """Clear all geopackages."""
@@ -299,20 +394,89 @@ class PackageLayerUpdaterDialog(QDialog):
                 self.target_geopackages.clear()
                 self.geopackages_list.clear()
                 self.update_geopackages_count()
-                self.save_geopackages_to_project()  # Save selections when modified
+                self.save_geopackages_to_project()
 
     def update_geopackages_count(self):
         """Update the geopackages count label."""
         self.geopackages_count_label.setText(f"Geopackages: {len(self.target_geopackages)}")
-    
+
     def get_selected_layers(self):
         """Get the list of selected layer IDs."""
         return self.selected_layers
-    
+
     def get_target_geopackages(self):
-        """Get the list of target geopackage file paths."""
-        return self.target_geopackages
-    
+        """
+        Get the list of target geopackage file paths (resolved to absolute).
+        
+        Returns:
+            list: List of absolute paths to geopackages
+        """
+        # Return absolute paths for use by the logic layer
+        return [self._resolve_to_absolute(p) for p in self.target_geopackages]
+
+    def save_geopackages_to_project(self):
+        """
+        Save the target geopackages to the QGIS project custom properties.
+        Paths are already stored as relative when possible.
+        """
+        try:
+            project = QgsProject.instance()
+            
+            if not project.fileName():
+                return
+            
+            # Save paths as-is (already portable/relative when possible)
+            project.writeEntry("PackageLayerUpdater", "target_geopackages", self.target_geopackages)
+            
+            print(f"Saved {len(self.target_geopackages)} geopackage paths to project")
+            
+        except Exception as e:
+            print(f"Error saving geopackages to project: {e}")
+
+    def load_saved_geopackages(self):
+        """
+        Load previously saved geopackages from the QGIS project custom properties.
+        """
+        try:
+            project = QgsProject.instance()
+            
+            if not project.fileName():
+                return
+            
+            # Read from project custom properties
+            saved_paths, ok = project.readListEntry("PackageLayerUpdater", "target_geopackages")
+            
+            if not ok or not saved_paths:
+                return
+            
+            # Load paths and verify they exist
+            loaded_count = 0
+            for stored_path in saved_paths:
+                try:
+                    # Resolve to absolute to check if file exists
+                    abs_path = self._resolve_to_absolute(stored_path)
+                    
+                    if os.path.exists(abs_path):
+                        # Check for duplicates
+                        if not self._is_duplicate_path(stored_path):
+                            self.target_geopackages.append(stored_path)
+                            # Display the path (already relative if it was stored that way)
+                            self.geopackages_list.addItem(self._get_display_path(stored_path))
+                            loaded_count += 1
+                    else:
+                        print(f"Skipping non-existent geopackage: {abs_path}")
+                
+                except Exception as e:
+                    print(f"Error loading geopackage path '{stored_path}': {e}")
+            
+            if loaded_count > 0:
+                self.update_geopackages_count()
+                self.append_console(f"Loaded {loaded_count} saved geopackage(s) from project")
+                print(f"Loaded {loaded_count} geopackage paths from project")
+        
+        except Exception as e:
+            print(f"Error loading saved geopackages: {e}")
+
     def get_update_new_only(self):
         """Get whether to update only new/modified layers."""
         return self.update_new_only_checkbox.isChecked()
@@ -338,26 +502,35 @@ class PackageLayerUpdaterDialog(QDialog):
     def display_results(self, results: dict):
         """Display the update results in the console."""
         try:
+            # Display warnings first (these appear during processing)
+            warnings = results.get('warnings', [])
+            if warnings:
+                for w in warnings:
+                    self.append_console(f"{w}")
+            
+            # Display errors
+            errors = results.get('errors', [])
+            if errors:
+                self.append_console(f"\nErrors ({len(errors)}):")
+                for e in errors:
+                    self.append_console(f"  - {e}")
+            
+            # Display summary last
             self.append_console("\n=== Package Layer Updater - Results ===")
             self.append_console(f"Success: {results.get('success', False)}")
             self.append_console(f"Geopackages updated: {results.get('geopackages_updated', 0)}")
             self.append_console(f"Layers updated: {results.get('layers_updated', 0)}")
             self.append_console(f"Layers skipped: {results.get('layers_skipped', 0)}")
             
-            warnings = results.get('warnings', [])
-            errors = results.get('errors', [])
+            layers_not_found = results.get('layers_not_found', 0)
+            if layers_not_found > 0:
+                self.append_console(f"Layers not found in any geopackage: {layers_not_found}")
             
-            if warnings:
-                self.append_console(f"\nWarnings ({len(warnings)}):")
-                for w in warnings:
-                    self.append_console(f"  - {w}")
+            fids_fixed = results.get('fids_fixed', 0)
+            if fids_fixed > 0:
+                self.append_console(f"FIDs fixed: {fids_fixed}")
             
-            if errors:
-                self.append_console(f"\nErrors ({len(errors)}):")
-                for e in errors:
-                    self.append_console(f"  - {e}")
-            
-            self.append_console("\n=== End Results ===\n")
+            self.append_console("=== End Results ===\n")
         except Exception:
             pass
     
@@ -405,97 +578,3 @@ class PackageLayerUpdaterDialog(QDialog):
             except Exception:
                 pass
             self._update_running = False
-    
-    def save_geopackages_to_project(self):
-        """
-        Save the target geopackages to the QGIS project custom properties.
-        Paths are stored as relative paths when possible for portability.
-        """
-        try:
-            project = QgsProject.instance()
-            
-            if not project.fileName():
-                # Project not saved yet, can't use relative paths
-                return
-            
-            project_dir = os.path.dirname(project.fileName())
-            
-            # Convert to relative paths
-            relative_paths = []
-            for gpkg_path in self.target_geopackages:
-                try:
-                    # Try to make relative path
-                    rel_path = os.path.relpath(gpkg_path, project_dir)
-                    # Only use relative path if it doesn't start with ".."
-                    # (i.e., geopackage is within or below project directory)
-                    if not rel_path.startswith('..'):
-                        relative_paths.append(f"REL:{rel_path}")
-                    else:
-                        # Use absolute path if outside project tree
-                        relative_paths.append(f"ABS:{gpkg_path}")
-                except Exception:
-                    # If relpath fails, use absolute
-                    relative_paths.append(f"ABS:{gpkg_path}")
-            
-            # Save to project custom properties
-            project.writeEntry("PackageLayerUpdater", "target_geopackages", relative_paths)
-            
-            print(f"Saved {len(relative_paths)} geopackage paths to project")
-            
-        except Exception as e:
-            print(f"Error saving geopackages to project: {e}")
-
-    def load_saved_geopackages(self):
-        """
-        Load previously saved geopackages from the QGIS project custom properties.
-        Converts relative paths back to absolute paths.
-        """
-        try:
-            project = QgsProject.instance()
-            
-            if not project.fileName():
-                # Project not saved yet, nothing to load
-                return
-            
-            project_dir = os.path.dirname(project.fileName())
-            
-            # Read from project custom properties
-            saved_paths, ok = project.readListEntry("PackageLayerUpdater", "target_geopackages")
-            
-            if not ok or not saved_paths:
-                return
-            
-            # Convert back to absolute paths and add to list
-            loaded_count = 0
-            for path_entry in saved_paths:
-                try:
-                    if path_entry.startswith("REL:"):
-                        # Relative path - convert to absolute
-                        rel_path = path_entry[4:]  # Remove "REL:" prefix
-                        abs_path = os.path.normpath(os.path.join(project_dir, rel_path))
-                    elif path_entry.startswith("ABS:"):
-                        # Absolute path - use as is
-                        abs_path = path_entry[4:]  # Remove "ABS:" prefix
-                    else:
-                        # Legacy format (no prefix) - assume relative
-                        abs_path = os.path.normpath(os.path.join(project_dir, path_entry))
-                    
-                    # Check if file exists
-                    if os.path.exists(abs_path):
-                        if abs_path not in self.target_geopackages:
-                            self.target_geopackages.append(abs_path)
-                            self.geopackages_list.addItem(abs_path)
-                            loaded_count += 1
-                    else:
-                        print(f"Skipping non-existent geopackage: {abs_path}")
-                
-                except Exception as e:
-                    print(f"Error loading geopackage path '{path_entry}': {e}")
-            
-            if loaded_count > 0:
-                self.update_geopackages_count()
-                self.append_console(f"Loaded {loaded_count} saved geopackage(s) from project")
-                print(f"Loaded {loaded_count} geopackage paths from project")
-        
-        except Exception as e:
-            print(f"Error loading saved geopackages: {e}")

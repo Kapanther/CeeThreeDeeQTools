@@ -458,24 +458,28 @@ class MirrorProjectDialog(QDialog):
         
         if project_files:
             for project_file in project_files:
+                # Normalize paths for comparison
+                normalized_path = os.path.normpath(project_file)
+                normalized_master = os.path.normpath(self.master_project_path)
+                
                 # Don't add the master project itself
-                if project_file == self.master_project_path:
+                if normalized_path == normalized_master:
                     QMessageBox.warning(
                         self,
                         "Invalid Selection",
-                        f"Cannot add the master project as a target project.\n\nMaster project:\n{self.master_project_path}"
+                        f"Cannot add the master project as a target project.\n\nMaster project:\n{normalized_master}"
                     )
                     continue
                 
-                # Don't add duplicates
-                if project_file not in self.target_projects:
-                    self.target_projects.append(project_file)
-                    self.projects_list.addItem(project_file)
+                # Don't add duplicates (compare normalized paths)
+                if normalized_path not in [os.path.normpath(p) for p in self.target_projects]:
+                    self.target_projects.append(normalized_path)
+                    self.projects_list.addItem(normalized_path)
                 else:
                     QMessageBox.information(
                         self,
                         "Already Added",
-                        f"This project is already in the target list:\n\n{project_file}"
+                        f"This project is already in the target list:\n\n{normalized_path}"
                     )
             
             self.update_projects_count()

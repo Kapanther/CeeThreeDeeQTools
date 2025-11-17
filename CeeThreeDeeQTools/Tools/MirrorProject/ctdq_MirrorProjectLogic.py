@@ -1601,3 +1601,140 @@ class MirrorProjectLogic:
             print(f"Error restoring labeling overrides: {e}")
             import traceback
             traceback.print_exc()
+    
+    @staticmethod
+    def _update_symbology_only(
+        existing_layer: QgsMapLayer,
+        source_layer: QgsMapLayer,
+        preserve_layer_filters: bool,
+        preserve_auxiliary_tables: bool,
+        results: dict = None
+    ) -> bool:
+        """
+        Update only the symbology of an existing layer without changing its data source.
+        This is used when a layer exists in the child project but we're not replacing the data source,
+        but we still want to update the visual styling to match the master project.
+        
+        Args:
+            existing_layer: The existing layer in the target project
+            source_layer: The source layer from master project
+            preserve_layer_filters: Whether to preserve existing filters
+            preserve_auxiliary_tables: Whether to preserve auxiliary data
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Preserve filter if requested
+            existing_filter = None
+            if preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'subsetString'):
+                        existing_filter = existing_layer.subsetString()
+                        if existing_filter and results:
+                            results['warnings'].append(
+                                f"Preserving filter for '{existing_layer.name()}': {existing_filter}"
+                            )
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Could not read filter: {str(e)}")
+            
+            # Update symbology
+            if source_layer.type() == QgsMapLayer.VectorLayer:
+                # Copy renderer
+                if source_layer.renderer():
+                    try:
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+                        if results:
+                            results['warnings'].append(f"Updated renderer for '{existing_layer.name()}'")
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"Could not update renderer: {str(e)}")
+                
+                # Copy labeling
+                if source_layer.labeling():
+                    try:
+                        existing_layer.setLabeling(source_layer.labeling().clone())
+                        existing_layer.setLabelsEnabled(source_layer.labelsEnabled())
+                        if results:
+                            results['warnings'].append(f"Updated labeling for '{existing_layer.name()}'")
+                        
+                        # Restore data-defined overrides for auxiliary data if preserving
+                        if preserve_auxiliary_tables:
+                            MirrorProjectLogic._restore_labeling_auxiliary_overrides(
+                                existing_layer,
+                                results
+                            )
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"Could not update labeling: {str(e)}")
+            
+            elif source_layer.type() == QgsMapLayer.RasterLayer:
+                # Copy renderer for raster
+                if source_layer.renderer():
+                    try:
+                        existing_layer.setRenderer(source_layer.renderer().clone())
+                    except Exception as e:
+                        if results:
+                            results['warnings'].append(f"Could not update raster renderer: {str(e)}")
+            
+            # Restore filter if we preserved it
+            if existing_filter and preserve_layer_filters:
+                try:
+                    if hasattr(existing_layer, 'setSubsetString'):
+                        success = existing_layer.setSubsetString(existing_filter)
+                        if success and results:
+                            results['warnings'].append(f"Restored filter for '{existing_layer.name()}'")
+                        elif not success and results:
+                            results['warnings'].append(f"Failed to restore filter for '{existing_layer.name()}'")
+                except Exception as e:
+                    if results:
+                        results['warnings'].append(f"Error restoring filter: {str(e)}")
+            
+            return True
+        
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error updating symbology only: {str(e)}")
+            print(f"Error updating symbology only: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def _add_new_layer_to_project(
+        layer: QgsMapLayer,
+        target_project: QgsProject,
+        update_symbology: bool,
+        results: dict = None
+    ) -> bool:
+        """
+        Add a new layer to the target project (layer doesn't exist yet).
+        
+        Args:
+            layer: The layer to add
+            target_project: The project to add to
+            update_symbology: Whether to copy symbology
+            results: Optional results dict for messages
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Use the clone method to add the new layer
+            return MirrorProjectLogic._clone_layer_to_project(
+                layer,
+                target_project,
+                copy_symbology=update_symbology,
+                results=results,
+                existing_filter=None,  # No existing filter for new layers
+                preserve_layer_filters=False,  # Not applicable for new layers
+                existing_auxiliary_storage=None,  # No existing auxiliary for new layers
+                preserve_auxiliary_tables=False  # Not applicable for new layers
+            )
+        except Exception as e:
+            if results:
+                results['errors'].append(f"Error adding new layer: {str(e)}")
+            print(f"Error adding new layer: {e}")
+            return False
