@@ -38,7 +38,7 @@ from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
 from PyQt5.QtWidgets import QAction, QMenu
 from PyQt5.QtGui import QIcon, QDesktopServices
-from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale
+from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale, Qt
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -140,6 +140,31 @@ class CTDQPlugin(object):
         )
         self.packageLayerUpdaterAction.triggered.connect(self.openPackageLayerUpdaterDialog)
         self.menu.addAction(self.packageLayerUpdaterAction)
+
+        # Create action for the Layers Advanced dock widget
+        self.layersAdvancedAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Layers Advanced"),
+            self.iface.mainWindow(),
+        )
+        self.layersAdvancedAction.setCheckable(True)
+        self.layersAdvancedAction.triggered.connect(self.toggleLayersAdvancedDock)
+        self.menu.addAction(self.layersAdvancedAction)
+
+        # Create the Layers Advanced dock widget immediately so QGIS can restore its state
+        from .Tools.LayersAdvanced.LayersAdvancedDialog import LayersAdvancedDialog
+        self.layersAdvancedDock = LayersAdvancedDialog(self.iface, self.iface.mainWindow())
+        self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.layersAdvancedDock)
+        
+        # Connect visibility changed to update action state (use self reference explicitly)
+        def update_action_state(visible):
+            if hasattr(self, 'layersAdvancedAction'):
+                self.layersAdvancedAction.setChecked(visible)
+        
+        self.layersAdvancedDock.visibilityChanged.connect(update_action_state)
+        
+        # Sync action checked state with dock visibility
+        self.layersAdvancedAction.setChecked(self.layersAdvancedDock.isVisible())
 
         # Create action that will start plugin help
         self.helpAction = QAction(
@@ -337,11 +362,24 @@ class CTDQPlugin(object):
         dialog.set_update_callback(update_callback)
         dialog.show()
 
+    def toggleLayersAdvancedDock(self, checked):
+        """Toggle the Layers Advanced dock widget."""
+        if checked:
+            self.layersAdvancedDock.show()
+        else:
+            self.layersAdvancedDock.hide()
+
     def unload(self):
         """
         Unloads the plugin and removes the provider from the processing registry.
         """
-        QgsApplication.processingRegistry().removeProvider(self.provider)
+        # Remove provider safely - check if it still exists
+        try:
+            if hasattr(self, 'provider') and self.provider is not None:
+                QgsApplication.processingRegistry().removeProvider(self.provider)
+        except RuntimeError:
+            # Provider already deleted, ignore
+            pass
 
         # Remove the "CeeThreeDee Qtools" menu and its actions
         if self.menu:
@@ -349,7 +387,13 @@ class CTDQPlugin(object):
             self.iface.mainWindow().menuBar().removeAction(self.menu.menuAction())
             self.menu = None
 
+        # Remove the Layers Advanced dock widget
+        if self.layersAdvancedDock:
+            self.iface.removeDockWidget(self.layersAdvancedDock)
+            self.layersAdvancedDock = None
+
         del self.validateAction
         del self.mirrorProjectAction
         del self.packageLayerUpdaterAction
+        del self.layersAdvancedAction
         del self.helpAction

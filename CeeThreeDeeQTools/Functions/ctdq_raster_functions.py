@@ -145,6 +145,13 @@ class CtdqRasterFunctions:
         width = input_raster.width()
         height = input_raster.height()
         no_data_value = provider.sourceNoDataValue(1)
+        
+        # Handle case where NoData is not defined
+        if no_data_value is None or no_data_value == 0:
+            no_data_value = -32567
+            feedback.pushInfo(f"No NoData value defined, using default: {no_data_value}")
+        else:
+            feedback.pushInfo(f"Using NoData value: {no_data_value}")
 
         # Read raster into a numpy array with shape (height, width).
         dem = np.zeros((height, width), dtype=np.float32)
@@ -162,6 +169,7 @@ class CtdqRasterFunctions:
                         dem = arr.astype(np.float32)
                         nd = band.GetNoDataValue()
                         if nd is not None:
+                            # Mark NoData cells
                             dem[dem == nd] = no_data_value
                         read_ok = True
                     else:
@@ -178,69 +186,131 @@ class CtdqRasterFunctions:
             for y in range(height):
                 if feedback.isCanceled():
                     feedback.pushInfo("Processing canceled during raster read.")
-                    return {}
+                    return None
                 for x in range(width):
                     try:
                         value = block.value(x, y)
                     except Exception:
                         # Defensive: if block.value misbehaves, set nodata
                         value = None
-                    dem[y, x] = float(value) if value is not None else -9999
+                    dem[y, x] = float(value) if value is not None else no_data_value
                 if (y % row_update) == 0:
                     try:
                         pct = int(5 + (y / float(height)) * 10)
                         feedback.setProgress(pct)
                     except Exception:
                         pass
-        feedback.pushInfo(f"dem array shape after read: {dem.shape}, dtype: {dem.dtype}")
+        
+        feedback.pushInfo(f"DEM array shape after read: {dem.shape}, dtype: {dem.dtype}")
+        
+        # Count valid (non-NoData) cells
+        valid_mask = (dem != no_data_value) & np.isfinite(dem)
+        valid_count = np.sum(valid_mask)
+        total_count = height * width
+        feedback.pushInfo(f"Valid cells: {valid_count} / {total_count} ({100.0 * valid_count / total_count:.1f}%)")
+        
+        if valid_count == 0:
+            feedback.reportError("No valid data cells found in raster!")
+            return None
         
         # Sink-fill (priority queue propagation)
         pq = PriorityQueue()
         visited = np.zeros((height, width), dtype=bool)
-        # add top and bottom rows
+        
+        # Mark all NoData cells as visited so they are never processed
+        visited[~valid_mask] = True
+        
+        # Initialize priority queue with boundary cells (edges of valid data)
+        # Top and bottom rows
         for x in range(width):
-            if dem[0, x] != no_data_value:
+            # Top row
+            if valid_mask[0, x]:
                 pq.put((0, x), dem[0, x])
                 visited[0, x] = True
-            if dem[height - 1, x] != no_data_value:
+            # Bottom row
+            if valid_mask[height - 1, x]:
                 pq.put((height - 1, x), dem[height - 1, x])
                 visited[height - 1, x] = True
-        # add left and right columns
+        
+        # Left and right columns (excluding corners already added)
         for y in range(1, height - 1):
-            if dem[y, 0] != no_data_value:
+            # Left column
+            if valid_mask[y, 0]:
                 pq.put((y, 0), dem[y, 0])
                 visited[y, 0] = True
-            if dem[y, width - 1] != no_data_value:
+            # Right column
+            if valid_mask[y, width - 1]:
                 pq.put((y, width - 1), dem[y, width - 1])
                 visited[y, width - 1] = True
-
-        # Main loop: process cells from the priority queue (row=y, col=x)
-        filled_dem = dem.copy()
+        
+        # Also add cells that border NoData as boundary cells
+        # This ensures irregular boundaries are handled correctly
+        feedback.pushInfo("Detecting interior boundaries adjacent to NoData...")
+        interior_boundary_count = 0
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # (dy, dx)
-        # We'll track progress by processed nodes vs total cells as an estimate
-        total_cells = float(max(1, height * width))
+        
+        for y in range(1, height - 1):
+            if feedback.isCanceled():
+                return None
+            for x in range(1, width - 1):
+                # If this cell is valid and not yet visited
+                if valid_mask[y, x] and not visited[y, x]:
+                    # Check if any neighbor is NoData
+                    has_nodata_neighbor = False
+                    for dy, dx in directions:
+                        ny, nx = y + dy, x + dx
+                        if not valid_mask[ny, nx]:  # Neighbor is NoData
+                            has_nodata_neighbor = True
+                            break
+                    
+                    if has_nodata_neighbor:
+                        # This is an interior boundary cell
+                        pq.put((y, x), dem[y, x])
+                        visited[y, x] = True
+                        interior_boundary_count += 1
+        
+        feedback.pushInfo(f"Found {interior_boundary_count} interior boundary cells adjacent to NoData")
+        
+        # Initialize filled_dem with original values
+        filled_dem = dem.copy()
+        
+        # Main loop: process cells from the priority queue
         processed = 0
-        update_step = max(1, int(total_cells // 200))
+        update_step = max(1, valid_count // 200)
+        
         while not pq.empty():
             if feedback.isCanceled():
                 feedback.pushInfo("Processing canceled during sink-fill step.")
-                return {}
+                return None
+            
             y, x = pq.get()
             processed += 1
+            
+            # Process neighbors
             for dy, dx in directions:
                 ny, nx = y + dy, x + dx
+                
+                # Check bounds
                 if 0 <= ny < height and 0 <= nx < width:
-                    if not visited[ny, nx] and dem[ny, nx] != no_data_value:
+                    # Only process valid, unvisited cells
+                    if valid_mask[ny, nx] and not visited[ny, nx]:
+                        # If neighbor is lower than current cell, raise it
                         if filled_dem[ny, nx] < filled_dem[y, x]:
                             filled_dem[ny, nx] = filled_dem[y, x]
+                        
+                        # Add to queue and mark as visited
                         pq.put((ny, nx), filled_dem[ny, nx])
                         visited[ny, nx] = True
+            
+            # Update progress
             if (processed % update_step) == 0:
                 try:
-                    pct = int(15 + (processed / total_cells) * 35)
+                    pct = int(15 + (processed / float(valid_count)) * 75)
                     feedback.setProgress(min(90, pct))
                 except Exception:
                     pass
+        
+        feedback.pushInfo(f"Processed {processed} valid cells during sink-fill")
        
         # Write filled raster to disk using GDAL        
         driver = gdal.GetDriverByName('GTiff')
@@ -283,64 +353,39 @@ class CtdqRasterFunctions:
         # Create a temporary file path for the filled raster
         import tempfile, uuid
         temp_filled_path = os.path.join(tempfile.gettempdir(), f"filled_raster_{uuid.uuid4().hex}.tif")
-        out_raster = driver.Create(temp_filled_path, width, height, 1, gdal.GDT_Float32)
-        out_raster.SetGeoTransform(geotransform)
-        out_raster.SetProjection(proj_wkt)
-        out_band = out_raster.GetRasterBand(1)
-        # Prepare filled_dem for writing and add diagnostics
+        
         try:
+            out_raster = driver.Create(temp_filled_path, width, height, 1, gdal.GDT_Float32)
+            out_raster.SetGeoTransform(geotransform)
+            out_raster.SetProjection(proj_wkt)
+            out_band = out_raster.GetRasterBand(1)
+            out_band.SetNoDataValue(float(no_data_value))
+            
+            # Prepare filled_dem for writing
             arr = np.ascontiguousarray(filled_dem.astype(np.float32))
-        except Exception as e:
-            feedback.reportError(f"Failed to prepare filled_dem array for writing: {e}")
-            out_raster = None
-            return {}
-        feedback.pushInfo(f"filled_dem array shape: {arr.shape}, dtype: {arr.dtype}")
-        try:
-            xs = out_raster.RasterXSize
-            ys = out_raster.RasterYSize
-            feedback.pushInfo(f"GDAL out_raster size: xsize={xs}, ysize={ys}")
-        except Exception:
-            feedback.pushInfo("Could not read out_raster size for logging")
-        # GDAL expects (rows, cols) == (height, width)
-        if arr.shape != (height, width):
-            feedback.reportError(f"filled_dem shape {arr.shape} does not match expected (height,width)=({height},{width}). Aborting write.")
-            out_raster = None
-            return {}
-        try:
+            feedback.pushInfo(f"Writing filled_dem array shape: {arr.shape}, dtype: {arr.dtype}")
+            
+            if arr.shape != (height, width):
+                feedback.reportError(f"filled_dem shape {arr.shape} does not match expected (height,width)=({height},{width})")
+                out_raster = None
+                return None
+            
             out_band.WriteArray(arr)
+            out_band.FlushCache()
+            
+            # Verify write
+            feedback.pushInfo(f"Filled raster written to: {temp_filled_path}")
+            
         except Exception as e:
-            feedback.reportError(f"Failed to WriteArray for filled raster: {e}; arr.shape={arr.shape}; expected (height,width)=({height},{width})")
-            out_raster = None
-            return {}
-        out_band.SetNoDataValue(no_data_value)
-        out_band.FlushCache()
-        out_band.SetNoDataValue(no_data_value)
-        out_band.FlushCache()
-        # Readback verification: open written file and compare
-        try:
-            ds_check = out_raster
-            if ds_check is not None:
-                band_check = ds_check.GetRasterBand(1)
-                arr_check = band_check.ReadAsArray()
-                gt_check = ds_check.GetGeoTransform()
-                feedback.pushInfo(f"Written raster readback shape: {arr_check.shape}, dtype: {arr_check.dtype}")
-                feedback.pushInfo(f"Written raster geotransform: {gt_check}")
-                # sample corners
-                h_ck, w_ck = arr_check.shape
-                sample_vals = {
-                    'top_left': float(arr_check[0, 0]),
-                    'top_right': float(arr_check[0, w_ck - 1]),
-                    'bottom_left': float(arr_check[h_ck - 1, 0]),
-                    'bottom_right': float(arr_check[h_ck - 1, w_ck - 1])
-                }
-                feedback.pushInfo(f"Written raster corner samples: {sample_vals}")
-            else:
-                feedback.pushInfo("Could not open written filled raster for readback verification")
-        except Exception as e:
-            feedback.pushInfo(f"Exception during filled raster readback verification: {e}")
+            feedback.reportError(f"Failed to write filled raster: {e}")
+            if out_raster:
+                out_raster = None
+            return None
         finally:
-            out_raster = None
-        feedback.pushInfo(f"Filled raster written to: {temp_filled_path}")
+            if out_raster:
+                out_raster = None
+        
+        feedback.setProgress(100)
         
         # Return the filled_dem array for further processing
         return filled_dem
