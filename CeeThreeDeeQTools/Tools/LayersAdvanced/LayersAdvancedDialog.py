@@ -365,16 +365,41 @@ class LayersAdvancedDialog(QDockWidget):
                 pass
     
     def filter_layers(self, text):
-        """Filter layers based on search text."""
+        """Filter layers based on search text, including child layers in groups."""
         text = text.lower()
         
+        def filter_item_recursive(item):
+            """Recursively filter item and its children. Returns True if item or any child matches."""
+            item_name = item.text(0).lower()
+            item_type = item.data(0, Qt.UserRole + 1)
+            
+            # Check if this item matches
+            item_matches = text in item_name if text else True
+            
+            # For groups, check if any children match
+            any_child_matches = False
+            if item_type == "group" or item.childCount() > 0:
+                for i in range(item.childCount()):
+                    child = item.child(i)
+                    if filter_item_recursive(child):
+                        any_child_matches = True
+            
+            # Show item if it matches OR if any child matches (for groups)
+            # For non-groups (layers), only show if the item itself matches
+            if item_type == "group":
+                should_show = item_matches or any_child_matches
+            else:
+                should_show = item_matches
+            
+            item.setHidden(not should_show)
+            
+            # Return whether this item or its children match
+            return item_matches or any_child_matches
+        
+        # Filter all top-level items
         for i in range(self.layer_tree.topLevelItemCount()):
             item = self.layer_tree.topLevelItem(i)
-            layer_name = item.text(0).lower()
-            
-            # Show/hide based on filter match
-            should_show = text in layer_name if text else True
-            item.setHidden(not should_show)
+            filter_item_recursive(item)
     
     def on_item_visibility_changed(self, item, column):
         """Handle checkbox state change for layer visibility."""
