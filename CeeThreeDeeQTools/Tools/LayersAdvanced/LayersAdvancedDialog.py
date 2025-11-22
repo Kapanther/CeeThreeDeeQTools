@@ -42,9 +42,32 @@ from .services.layer_service import LayerService
 from .services.visibility_service import VisibilityService
 from .services.symbology_service import SymbologyService
 from .services.selection_service import SelectionService
+from .services.layer_operations_service import LayerOperationsService
+from .services.tree_reordering_service import TreeReorderingService
+from .services.signal_manager_service import SignalManagerService
 from .ui.layer_tree_builder import LayerTreeBuilder
 from .ui.context_menu import LayerContextMenu
+from .ui.event_handlers import EventHandlers
+from .ui.filter_widget import FilterService
 import os
+
+
+class DraggableTreeWidget(QTreeWidget):
+    """Custom QTreeWidget that emits a signal after drag-and-drop operations."""
+    
+    dropCompleted = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+    
+    def dropEvent(self, event):
+        """Override dropEvent to detect when items are dropped."""
+        # Let Qt handle the drop first
+        super().dropEvent(event)
+        
+        # Emit signal after a short delay to allow Qt to finish processing
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(100, self.dropCompleted.emit)
 
 
 class LayersAdvancedDialog(QDockWidget):
@@ -120,7 +143,7 @@ class LayersAdvancedDialog(QDockWidget):
         layout.addLayout(search_layout)
         
         # Layer tree widget
-        self.layer_tree = QTreeWidget()
+        self.layer_tree = DraggableTreeWidget()
         self.layer_tree.setHeaderLabels(["Layer Name", "Type", "Features/Size", "CRS", "File Type", "File Size", "Source"])
         self.layer_tree.setColumnWidth(0, 200)
         self.layer_tree.setColumnWidth(1, 80)
@@ -133,6 +156,18 @@ class LayersAdvancedDialog(QDockWidget):
         self.layer_tree.customContextMenuRequested.connect(self.show_context_menu)
         self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
         self.layer_tree.itemSelectionChanged.connect(self.on_item_selected)
+        
+        # Enable multi-selection with Ctrl and Shift
+        self.layer_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        
+        # Enable drag and drop for reordering
+        self.layer_tree.setDragEnabled(True)
+        self.layer_tree.setAcceptDrops(True)
+        self.layer_tree.setDragDropMode(QTreeWidget.InternalMove)
+        self.layer_tree.setDefaultDropAction(Qt.MoveAction)
+        
+        # Connect drop completed signal
+        self.layer_tree.dropCompleted.connect(self.on_drop_completed)
         
         # Enable editing for layer name column (column 0)
         self.layer_tree.setEditTriggers(QTreeWidget.NoEditTriggers)  # Disable default triggers
@@ -155,10 +190,12 @@ class LayersAdvancedDialog(QDockWidget):
         button_layout = QHBoxLayout()
         
         self.show_all_btn = QPushButton("Show All")
+        self.show_all_btn.setToolTip("Show all layers (or selected layers if any are selected)")
         self.show_all_btn.clicked.connect(self.show_all_layers)
         button_layout.addWidget(self.show_all_btn)
         
         self.hide_all_btn = QPushButton("Hide All")
+        self.hide_all_btn.setToolTip("Hide all layers (or selected layers if any are selected)")
         self.hide_all_btn.clicked.connect(self.hide_all_layers)
         button_layout.addWidget(self.hide_all_btn)
         
@@ -221,44 +258,7 @@ class LayersAdvancedDialog(QDockWidget):
     
     def connect_project_signals(self):
         """Connect to QGIS project signals for automatic updates."""
-        project = QgsProject.instance()
-        
-        # Project read - when a project is opened (readProject fires after project is loaded)
-        try:
-            project.readProject.connect(self.on_project_loaded)
-        except AttributeError:
-            pass  # Signal might not exist in this QGIS version
-        
-        # Layer added/removed
-        project.layersAdded.connect(self.refresh_layers)
-        project.layersRemoved.connect(self.refresh_layers)
-        
-        # Layer CRS changed - connect to all layers
-        for layer in project.mapLayers().values():
-            try:
-                layer.crsChanged.connect(self.on_layer_changed)
-            except Exception:
-                pass
-            # Connect to renderer changed signal for symbology updates
-            try:
-                layer.rendererChanged.connect(self.on_renderer_changed)
-            except Exception:
-                pass
-        
-        # When new layers are added, connect to their crsChanged signal
-        project.layersAdded.connect(self.connect_layer_signals)
-        
-        # Layer order changed
-        try:
-            project.layerTreeRoot().visibilityChanged.connect(self.on_qgis_visibility_changed)
-        except Exception:
-            pass
-        
-        # Active layer changed - sync selection from QGIS to our panel
-        try:
-            self.iface.layerTreeView().currentLayerChanged.connect(self.on_qgis_active_layer_changed)
-        except Exception:
-            pass
+        SignalManagerService.connect_project_signals(self)
     
     def on_project_loaded(self):
         """Handle project loaded event - refresh layers after a delay to ensure layers are fully loaded."""
@@ -268,37 +268,87 @@ class LayersAdvancedDialog(QDockWidget):
     
     def connect_layer_signals(self, layers):
         """Connect to signals for newly added layers."""
+        SignalManagerService.connect_layer_signals(self, layers)
+        # Also connect CRS changes
         for layer in layers:
             try:
                 layer.crsChanged.connect(self.on_layer_changed)
             except Exception:
                 pass
-            # Connect to renderer changed signal for symbology updates
-            try:
-                layer.rendererChanged.connect(self.on_renderer_changed)
-            except Exception:
-                pass
     
     def on_renderer_changed(self):
         """Handle renderer/symbology changes (e.g., from QGIS layer styling panel)."""
-        sender = self.sender()
-        if sender:
-            self.log_debug(f"Renderer changed for layer: {sender.name()}")
-        else:
-            self.log_debug("Renderer changed - refreshing layers")
-        # Don't refresh if we're in the middle of updating visibility
         if not self._updating_visibility:
-            # Try to update just the symbology checkboxes instead of full refresh
+            sender = self.sender()
+            # Update just the symbology checkboxes for the changed layer
             if sender:
                 self.update_layer_symbology_checkboxes(sender)
             else:
                 self.refresh_layers()
+    
+    def on_legend_changed(self):
+        """Handle legend changes - fires when symbology checkboxes are toggled in QLP."""
+        if not self._updating_visibility:
+            sender = self.sender()
+            if sender:
+                # Update symbology checkboxes for this layer
+                self.update_layer_symbology_checkboxes(sender)
     
     def on_layer_changed(self):
         """Handle layer property changes (like CRS)."""
         # Don't refresh if we're in the middle of updating visibility
         if not self._updating_visibility:
             self.refresh_layers()
+    
+    def on_layer_tree_children_changed(self, node, index_from, index_to):
+        """
+        Handle layer tree structure changes (groups added/removed, layers moved).
+        
+        Args:
+            node: The parent node where children changed
+            index_from: Starting index of the change
+            index_to: Ending index of the change
+        """
+        if self._updating_visibility:
+            return
+        
+        self.log_debug(f"Layer tree children changed - refreshing (node: {node}, indices: {index_from}-{index_to})")
+        self.refresh_layers()
+    
+    def on_drop_completed(self):
+        """Handle completion of drag-and-drop operation."""
+        self.apply_tree_reordering()
+    
+    def apply_tree_reordering(self):
+        """Apply the visual tree reordering to the actual QGIS layer tree."""
+        try:
+            project = QgsProject.instance()
+            root = project.layerTreeRoot()
+            
+            # Temporarily disconnect the layer tree signals to avoid recursive updates
+            try:
+                root.addedChildren.disconnect(self.on_layer_tree_children_changed)
+                root.removedChildren.disconnect(self.on_layer_tree_children_changed)
+            except (TypeError, RuntimeError):
+                pass
+            
+            # Apply the tree structure recursively using service
+            TreeReorderingService.apply_tree_reordering(self.layer_tree, root)
+            
+            # Reconnect signals
+            try:
+                root.addedChildren.connect(self.on_layer_tree_children_changed)
+                root.removedChildren.connect(self.on_layer_tree_children_changed)
+            except (TypeError, RuntimeError):
+                pass
+            
+            # Refresh to sync with QGIS
+            self.refresh_layers()
+            
+        except Exception as e:
+            import traceback
+            self.log_debug(f"ERROR in apply_tree_reordering: {str(e)}")
+            self.log_debug(traceback.format_exc())
     
     def update_layer_symbology_checkboxes(self, layer):
         """Update symbology checkbox states for a specific layer without rebuilding the tree."""
@@ -311,7 +361,7 @@ class LayersAdvancedDialog(QDockWidget):
         try:
             # Use service to update checkboxes
             success = SymbologyService.update_symbology_checkboxes_for_layer(
-                layer, self.layer_tree, self.log_debug
+                layer, self.layer_tree
             )
             
             # If service returns False (e.g., rule-based renderer), do full refresh
@@ -366,40 +416,7 @@ class LayersAdvancedDialog(QDockWidget):
     
     def filter_layers(self, text):
         """Filter layers based on search text, including child layers in groups."""
-        text = text.lower()
-        
-        def filter_item_recursive(item):
-            """Recursively filter item and its children. Returns True if item or any child matches."""
-            item_name = item.text(0).lower()
-            item_type = item.data(0, Qt.UserRole + 1)
-            
-            # Check if this item matches
-            item_matches = text in item_name if text else True
-            
-            # For groups, check if any children match
-            any_child_matches = False
-            if item_type == "group" or item.childCount() > 0:
-                for i in range(item.childCount()):
-                    child = item.child(i)
-                    if filter_item_recursive(child):
-                        any_child_matches = True
-            
-            # Show item if it matches OR if any child matches (for groups)
-            # For non-groups (layers), only show if the item itself matches
-            if item_type == "group":
-                should_show = item_matches or any_child_matches
-            else:
-                should_show = item_matches
-            
-            item.setHidden(not should_show)
-            
-            # Return whether this item or its children match
-            return item_matches or any_child_matches
-        
-        # Filter all top-level items
-        for i in range(self.layer_tree.topLevelItemCount()):
-            item = self.layer_tree.topLevelItem(i)
-            filter_item_recursive(item)
+        FilterService.filter_tree(self.layer_tree, text)
     
     def on_item_visibility_changed(self, item, column):
         """Handle checkbox state change for layer visibility."""
@@ -447,25 +464,18 @@ class LayersAdvancedDialog(QDockWidget):
             
             elif item_type == "category":
                 # Handle category visibility for categorized renderer
-                self.log_debug(f"  Calling set_category_visibility")
                 self.set_category_visibility(item, is_checked)
             
             elif item_type == "range":
                 # Handle range visibility for graduated renderer
-                self.log_debug(f"  Calling set_range_visibility")
                 self.set_range_visibility(item, is_checked)
             
             elif item_type == "rule":
                 # Handle rule visibility for rule-based renderer
-                self.log_debug(f"  Calling set_rule_visibility")
                 self.set_rule_visibility(item, is_checked)
-            
-            else:
-                self.log_debug(f"  Unknown item type: {item_type}")
         
         finally:
             # Clear flag after visibility update is complete
-            self._updating_visibility = False
             self._updating_visibility = False
     
     def set_category_visibility(self, item, visible):
@@ -476,6 +486,7 @@ class LayersAdvancedDialog(QDockWidget):
         # Temporarily disconnect our handler to avoid catching our own signal
         project = QgsProject.instance()
         layer = project.mapLayer(layer_id)
+        
         if layer:
             try:
                 layer.rendererChanged.disconnect(self.on_renderer_changed)
@@ -484,15 +495,9 @@ class LayersAdvancedDialog(QDockWidget):
         
         try:
             # Update visibility using service
-            success, layer = SymbologyService.update_category_visibility(
-                layer_id, category_index, visible, self.iface, self.log_debug
+            SymbologyService.update_category_visibility(
+                layer_id, category_index, visible, self.iface
             )
-            
-            if success and layer:
-                # Emit renderer changed to notify QGIS layer styling panel
-                layer.rendererChanged.emit()
-                # Reactivate layer if needed to refresh styling panel
-                SymbologyService.reactivate_layer_if_active(layer, self.iface, self.log_debug)
         finally:
             # Reconnect our handler
             if layer:
@@ -509,6 +514,7 @@ class LayersAdvancedDialog(QDockWidget):
         # Temporarily disconnect our handler to avoid catching our own signal
         project = QgsProject.instance()
         layer = project.mapLayer(layer_id)
+        
         if layer:
             try:
                 layer.rendererChanged.disconnect(self.on_renderer_changed)
@@ -517,15 +523,9 @@ class LayersAdvancedDialog(QDockWidget):
         
         try:
             # Update visibility using service
-            success, layer = SymbologyService.update_range_visibility(
-                layer_id, range_index, visible, self.iface, self.log_debug
+            SymbologyService.update_range_visibility(
+                layer_id, range_index, visible, self.iface
             )
-            
-            if success and layer:
-                # Emit renderer changed to notify QGIS layer styling panel
-                layer.rendererChanged.emit()
-                # Reactivate layer if needed to refresh styling panel
-                SymbologyService.reactivate_layer_if_active(layer, self.iface, self.log_debug)
         finally:
             # Reconnect our handler
             if layer:
@@ -542,6 +542,7 @@ class LayersAdvancedDialog(QDockWidget):
         # Temporarily disconnect our handler to avoid catching our own signal
         project = QgsProject.instance()
         layer = project.mapLayer(layer_id)
+        
         if layer:
             try:
                 layer.rendererChanged.disconnect(self.on_renderer_changed)
@@ -550,15 +551,9 @@ class LayersAdvancedDialog(QDockWidget):
         
         try:
             # Update visibility using service
-            success, layer = SymbologyService.update_rule_visibility(
-                layer_id, rule_key, visible, self.iface, self.log_debug
+            SymbologyService.update_rule_visibility(
+                layer_id, rule_key, visible, self.iface
             )
-            
-            if success and layer:
-                # Emit renderer changed to notify QGIS layer styling panel
-                layer.rendererChanged.emit()
-                # Reactivate layer if needed to refresh styling panel
-                SymbologyService.reactivate_layer_if_active(layer, self.iface, self.log_debug)
         finally:
             # Reconnect our handler
             if layer:
@@ -569,17 +564,7 @@ class LayersAdvancedDialog(QDockWidget):
     
     def set_qgis_group_visibility_recursive(self, group_node, visible):
         """Recursively set visibility for all layers in a QGIS group node."""
-        # Set the group's visibility
-        group_node.setItemVisibilityChecked(visible)
-        
-        # Set visibility for all children
-        for child in group_node.children():
-            if isinstance(child, QgsLayerTreeLayer):
-                # Set layer visibility
-                child.setItemVisibilityChecked(visible)
-            elif isinstance(child, QgsLayerTreeGroup):
-                # Recursively set group visibility
-                self.set_qgis_group_visibility_recursive(child, visible)
+        LayerOperationsService.set_group_visibility_recursive(group_node, visible)
     
     def on_item_selected(self):
         """Handle layer selection in the tree."""
@@ -636,7 +621,24 @@ class LayersAdvancedDialog(QDockWidget):
     
     def on_qgis_visibility_changed(self):
         """Handle visibility changes from QGIS (e.g., from main Layers panel)."""
+        # Log to see when this is triggered
+        sender = self.sender()
+        sender_info = "unknown"
+        if sender:
+            if hasattr(sender, 'name'):
+                sender_info = f"{type(sender).__name__}: {sender.name()}"
+            else:
+                sender_info = f"{type(sender).__name__}"
+        
+        self.log_debug(f"on_qgis_visibility_changed triggered by {sender_info}, _updating_visibility={self._updating_visibility}")
+        
+        # Don't update if we're the ones making the change
+        if self._updating_visibility:
+            self.log_debug("  Skipping refresh - we're updating visibility")
+            return
+        
         # Refresh to sync with QGIS
+        self.log_debug("  Refreshing layers from QGIS visibility change")
         self.refresh_layers()
     
     def on_qgis_active_layer_changed(self, layer):
@@ -699,7 +701,15 @@ class LayersAdvancedDialog(QDockWidget):
         self.log_debug(f"Layer not found in tree: {layer_id}")
     
     def show_all_layers(self):
-        """Show all layers."""
+        """Show all layers or selected layers if any are selected."""
+        selected_items = self.layer_tree.selectedItems()
+        
+        # If items are selected, only show those
+        if selected_items:
+            self.toggle_selected_visibility(True)
+            return
+        
+        # Otherwise show all
         self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
         
         try:
@@ -713,7 +723,15 @@ class LayersAdvancedDialog(QDockWidget):
             self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
     
     def hide_all_layers(self):
-        """Hide all layers."""
+        """Hide all layers or selected layers if any are selected."""
+        selected_items = self.layer_tree.selectedItems()
+        
+        # If items are selected, only hide those
+        if selected_items:
+            self.toggle_selected_visibility(False)
+            return
+        
+        # Otherwise hide all
         self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
         
         try:
@@ -722,6 +740,36 @@ class LayersAdvancedDialog(QDockWidget):
                 item.setCheckState(0, Qt.Unchecked)
                 layer_id = item.data(0, Qt.UserRole)
                 VisibilityService.set_layer_visibility(layer_id, False)
+        
+        finally:
+            self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
+    
+    def toggle_selected_visibility(self, visible):
+        """Toggle visibility for all selected items."""
+        selected_items = self.layer_tree.selectedItems()
+        if not selected_items:
+            return
+        
+        self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
+        
+        try:
+            for item in selected_items:
+                item_type = item.data(0, Qt.UserRole + 1)
+                item_id = item.data(0, Qt.UserRole)
+                
+                # Set checkbox state
+                item.setCheckState(0, Qt.Checked if visible else Qt.Unchecked)
+                
+                # Update actual layer/group visibility
+                if item_type == "layer":
+                    VisibilityService.set_layer_visibility(item_id, visible)
+                elif item_type == "group":
+                    # Get the QGIS group node and set visibility recursively
+                    project = QgsProject.instance()
+                    root = project.layerTreeRoot()
+                    group_node = root.findGroup(item_id)
+                    if group_node:
+                        LayerOperationsService.set_group_visibility_recursive(group_node, visible)
         
         finally:
             self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
@@ -793,7 +841,7 @@ class LayersAdvancedDialog(QDockWidget):
             settings.setValue(key, is_visible)
     
     def eventFilter(self, obj, event):
-        """Filter events to catch F2 key for renaming."""
+        """Filter events to catch F2 key for renaming and Space for visibility toggle."""
         if obj == self.layer_tree and event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_F2:
                 # Get selected item
@@ -805,33 +853,25 @@ class LayersAdvancedDialog(QDockWidget):
                     if item_type in ["layer", "group"]:
                         self.start_rename_item(item)
                         return True
+            
+            elif event.key() == Qt.Key_Space:
+                # Toggle visibility for selected items
+                selected_items = self.layer_tree.selectedItems()
+                if selected_items:
+                    # Determine new state: if any selected item is unchecked, check all; otherwise uncheck all
+                    any_unchecked = any(item.checkState(0) == Qt.Unchecked for item in selected_items)
+                    self.toggle_selected_visibility(any_unchecked)
+                    return True
+        
         return super().eventFilter(obj, event)
     
     def on_item_double_clicked(self, item, column):
         """Handle double-click to rename layer or group."""
-        # Only allow renaming in column 0 (name)
-        if column == 0:
-            item_type = item.data(0, Qt.UserRole + 1)
-            if item_type in ["layer", "group"]:
-                self.start_rename_item(item)
+        EventHandlers.handle_item_double_click(self, item, column)
     
     def start_rename_item(self, item):
         """Start inline editing for layer or group name."""
-        # Store original name
-        item.setData(0, Qt.UserRole + 2, item.text(0))
-        
-        # Temporarily disconnect itemChanged to avoid conflicts
-        self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
-        
-        # Make item editable for column 0 only
-        flags = item.flags()
-        item.setFlags(flags | Qt.ItemIsEditable)
-        
-        # Start editing
-        self.layer_tree.editItem(item, 0)
-        
-        # Connect to editing finished
-        self.layer_tree.itemChanged.connect(self.on_item_name_changed)
+        EventHandlers.start_rename(self, item)
     
     def on_item_name_changed(self, item, column):
         """Handle layer or group name change after inline editing."""
@@ -879,148 +919,71 @@ class LayersAdvancedDialog(QDockWidget):
         self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
     
     def move_layer_up(self):
-        """Move selected layer or group up in the layer order."""
+        """Move selected layer(s) or group(s) up in the layer order."""
         selected_items = self.layer_tree.selectedItems()
         if not selected_items:
             return
         
-        item = selected_items[0]
-        item_type = item.data(0, Qt.UserRole + 1)
+        # For multiple selections, move each item up in order
+        # Store IDs for reselection
+        items_to_reselect = []
         
-        # Get the layer tree root
-        project = QgsProject.instance()
-        root = project.layerTreeRoot()
+        for item in selected_items:
+            item_type = item.data(0, Qt.UserRole + 1)
+            item_id = item.data(0, Qt.UserRole)
+            
+            success = False
+            if item_type == "layer":
+                success = LayerOperationsService.move_layer_up(item_id)
+            elif item_type == "group":
+                success = LayerOperationsService.move_group_up(item_id)
+            
+            if success:
+                items_to_reselect.append((item_id, item_type))
         
-        if item_type == "layer":
-            layer_id = item.data(0, Qt.UserRole)
-            
-            # Find the layer node in the tree
-            layer_node = root.findLayer(layer_id)
-            if not layer_node:
-                return
-            
-            # Get parent and current index
-            parent = layer_node.parent()
-            if not parent:
-                return
-            
-            children = parent.children()
-            current_index = children.index(layer_node)
-            
-            # Move up if not already at top
-            if current_index > 0:
-                # Get the node above us
-                target_node = children[current_index - 1]
-                # Move us before it using insertChildNode with the same layer
-                cloned = layer_node.clone()
-                parent.insertChildNode(current_index - 1, cloned)
-                parent.removeChildNode(layer_node)
-                self.refresh_layers()
-                # Reselect the moved layer
-                self.reselect_item_by_id(layer_id, "layer")
-        
-        elif item_type == "group":
-            # Get group node by name (avoid dangling pointer)
-            group_name = item.data(0, Qt.UserRole)
-            group_node = root.findGroup(group_name)
-            if not group_node:
-                return
-            
-            # Get parent and current index
-            parent = group_node.parent()
-            if not parent:
-                return
-            
-            children = parent.children()
-            current_index = children.index(group_node)
-            
-            # Move up if not already at top
-            if current_index > 0:
-                # Clone the group (this preserves all children)
-                cloned = group_node.clone()
-                # Insert at new position
-                parent.insertChildNode(current_index - 1, cloned)
-                # Remove the original at its NEW position (it shifted when we inserted)
-                # After inserting at current_index - 1, the original is now at current_index + 1
-                parent.removeChildNode(parent.children()[current_index + 1])
-                self.refresh_layers()
-                # Reselect the moved group
-                self.reselect_item_by_id(group_name, "group")
+        if items_to_reselect:
+            self.refresh_layers()
+            # Reselect all moved items
+            for item_id, item_type in items_to_reselect:
+                self.reselect_item_by_id(item_id, item_type, clear_selection=False)
     
     def move_layer_down(self):
-        """Move selected layer or group down in the layer order."""
+        """Move selected layer(s) or group(s) down in the layer order."""
         selected_items = self.layer_tree.selectedItems()
         if not selected_items:
             return
         
-        item = selected_items[0]
-        item_type = item.data(0, Qt.UserRole + 1)
+        # For multiple selections, move each item down in reverse order
+        # to maintain relative positions
+        items_to_reselect = []
         
-        # Get the layer tree root
-        project = QgsProject.instance()
-        root = project.layerTreeRoot()
+        for item in reversed(selected_items):
+            item_type = item.data(0, Qt.UserRole + 1)
+            item_id = item.data(0, Qt.UserRole)
+            
+            success = False
+            if item_type == "layer":
+                success = LayerOperationsService.move_layer_down(item_id)
+            elif item_type == "group":
+                success = LayerOperationsService.move_group_down(item_id)
+            
+            if success:
+                items_to_reselect.append((item_id, item_type))
         
-        if item_type == "layer":
-            layer_id = item.data(0, Qt.UserRole)
-            
-            # Find the layer node in the tree
-            layer_node = root.findLayer(layer_id)
-            if not layer_node:
-                return
-            
-            # Get parent and current index
-            parent = layer_node.parent()
-            if not parent:
-                return
-            
-            children = parent.children()
-            current_index = children.index(layer_node)
-            
-            # Move down if not already at bottom
-            if current_index < len(children) - 1:
-                # Clone and insert FIRST at the new position (current + 2 because original still there)
-                cloned = layer_node.clone()
-                parent.insertChildNode(current_index + 2, cloned)
-                # Then remove the original
-                parent.removeChildNode(layer_node)
-                self.refresh_layers()
-                # Reselect the moved layer
-                self.reselect_item_by_id(layer_id, "layer")
-        
-        elif item_type == "group":
-            # Get group node by name (avoid dangling pointer)
-            group_name = item.data(0, Qt.UserRole)
-            group_node = root.findGroup(group_name)
-            if not group_node:
-                return
-            
-            # Get parent and current index
-            parent = group_node.parent()
-            if not parent:
-                return
-            
-            children = parent.children()
-            current_index = children.index(group_node)
-            
-            # Move down if not already at bottom
-            if current_index < len(children) - 1:
-                # Clone the group (this preserves all children)
-                cloned = group_node.clone()
-                # Insert at new position (current + 2 because original still there)
-                parent.insertChildNode(current_index + 2, cloned)
-                # Remove the original at its current position (index hasn't changed yet)
-                parent.removeChildNode(parent.children()[current_index])
-                self.refresh_layers()
-                # Reselect the moved group
-                self.reselect_item_by_id(group_name, "group")
+        if items_to_reselect:
+            self.refresh_layers()
+            # Reselect all moved items
+            for item_id, item_type in items_to_reselect:
+                self.reselect_item_by_id(item_id, item_type, clear_selection=False)
     
-    def reselect_item_by_id(self, item_id, item_type):
+    def reselect_item_by_id(self, item_id, item_type, clear_selection=True):
         """
         Find and reselect an item in the tree after refresh.
         
         Args:
             item_id: Layer ID or group name to reselect
             item_type: "layer" or "group"
+            clear_selection: If True, clear existing selection first
         """
         root = self.layer_tree.invisibleRootItem()
         
@@ -1046,7 +1009,11 @@ class LayersAdvancedDialog(QDockWidget):
         # Find and select the item
         item = search_item(root)
         if item:
-            self.layer_tree.setCurrentItem(item)
+            if clear_selection:
+                self.layer_tree.setCurrentItem(item)
+            else:
+                # Add to selection without clearing
+                item.setSelected(True)
             self.layer_tree.scrollToItem(item)
     
     def closeEvent(self, event):
@@ -1056,6 +1023,12 @@ class LayersAdvancedDialog(QDockWidget):
         
         # Disconnect signals
         try:
+            # Disconnect tree widget signals
+            try:
+                self.layer_tree.dropCompleted.disconnect(self.on_drop_completed)
+            except (AttributeError, TypeError):
+                pass
+            
             project = QgsProject.instance()
             try:
                 project.readProject.disconnect(self.on_project_loaded)
@@ -1063,6 +1036,36 @@ class LayersAdvancedDialog(QDockWidget):
                 pass
             project.layersAdded.disconnect(self.refresh_layers)
             project.layersRemoved.disconnect(self.refresh_layers)
+            
+            # Disconnect layer tree signals
+            try:
+                root = project.layerTreeRoot()
+                root.addedChildren.disconnect(self.on_layer_tree_children_changed)
+                root.removedChildren.disconnect(self.on_layer_tree_children_changed)
+                root.visibilityChanged.disconnect(self.on_qgis_visibility_changed)
+            except (AttributeError, TypeError):
+                pass
+                
+            # Disconnect active layer signal
+            try:
+                self.iface.layerTreeView().currentLayerChanged.disconnect(self.on_qgis_active_layer_changed)
+            except (AttributeError, TypeError):
+                pass
+            
+            # Disconnect from all layers (legendChanged, rendererChanged, styleChanged)
+            for layer in project.mapLayers().values():
+                try:
+                    layer.legendChanged.disconnect(self.on_legend_changed)
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    layer.rendererChanged.disconnect(self.on_renderer_changed)
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    layer.styleChanged.disconnect(self.on_layer_changed)
+                except (AttributeError, TypeError):
+                    pass
         except Exception:
             pass
         
