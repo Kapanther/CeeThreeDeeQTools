@@ -84,19 +84,28 @@ class SignalManagerService:
         for layer in layers:
             try:
                 layer.rendererChanged.connect(dialog.on_renderer_changed)
-            except (TypeError, RuntimeError, AttributeError):
-                pass
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✓ Connected rendererChanged for layer: {layer.name()} (type: {type(layer).__name__})")
+            except (TypeError, RuntimeError, AttributeError) as e:
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✗ Failed to connect rendererChanged for layer: {layer.name()} - {e}")
             
             try:
                 layer.styleChanged.connect(dialog.on_layer_changed)
-            except (TypeError, RuntimeError, AttributeError):
-                pass
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✓ Connected styleChanged for layer: {layer.name()}")
+            except (TypeError, RuntimeError, AttributeError) as e:
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✗ Failed to connect styleChanged for layer: {layer.name()} - {e}")
             
             # Connect to legendChanged - fires when symbology checkboxes are toggled
             try:
                 layer.legendChanged.connect(dialog.on_legend_changed)
-            except (TypeError, RuntimeError, AttributeError):
-                pass
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✓ Connected legendChanged for layer: {layer.name()}")
+            except (TypeError, RuntimeError, AttributeError) as e:
+                if hasattr(dialog, 'log_debug'):
+                    dialog.log_debug(f"✗ Failed to connect legendChanged for layer: {layer.name()} - {e}")
     
     @staticmethod
     def disconnect_tree_signals(root):

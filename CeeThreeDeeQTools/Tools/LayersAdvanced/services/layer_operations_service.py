@@ -191,3 +191,86 @@ class LayerOperationsService:
                     LayerOperationsService.set_group_visibility_recursive(child, visible)
         except Exception:
             pass
+    
+    @staticmethod
+    def move_layers_to_group(layer_ids, target_group_name):
+        """
+        Move multiple layers to a specified group.
+        
+        Args:
+            layer_ids: List of layer IDs to move
+            target_group_name: Name of the target group (or None for root level)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        from qgis.core import QgsLayerTreeLayer
+        
+        try:
+            project = QgsProject.instance()
+            root = project.layerTreeRoot()
+            
+            # Get target group node (or root if None)
+            if target_group_name:
+                target_node = root.findGroup(target_group_name)
+                if not target_node:
+                    return False
+            else:
+                target_node = root
+            
+            # Move each layer to the target group
+            for layer_id in layer_ids:
+                layer = project.mapLayer(layer_id)
+                if not layer:
+                    continue
+                
+                # Find the layer node in the tree
+                layer_node = root.findLayer(layer_id)
+                if not layer_node:
+                    continue
+                
+                # Clone the layer node
+                cloned_node = layer_node.clone()
+                
+                # Add to target group
+                target_node.addChildNode(cloned_node)
+                
+                # Remove from old location
+                parent = layer_node.parent()
+                if parent:
+                    parent.removeChildNode(layer_node)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error moving layers to group: {e}")
+            return False
+    
+    @staticmethod
+    def get_all_groups():
+        """
+        Get a list of all group names in the layer tree.
+        
+        Returns:
+            list: List of group names (strings)
+        """
+        from qgis.core import QgsLayerTreeGroup
+        
+        try:
+            project = QgsProject.instance()
+            root = project.layerTreeRoot()
+            
+            groups = []
+            
+            def collect_groups(node):
+                """Recursively collect group names."""
+                for child in node.children():
+                    if isinstance(child, QgsLayerTreeGroup):
+                        groups.append(child.name())
+                        collect_groups(child)
+            
+            collect_groups(root)
+            return groups
+            
+        except Exception:
+            return []

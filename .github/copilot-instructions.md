@@ -60,6 +60,9 @@ All custom tools follow this pattern:
 
 ## Code Conventions
 
+### Communication Style
+**Before making file edits**: Provide a brief explanation (at least one sentence) describing what changes you're about to make and why. This helps maintain transparency and allows for course correction if needed.
+
 ### File Size Limits
 **Keep files under 1000 lines** - AI agents struggle with larger files. When a module approaches this limit:
 - Split by responsibility (e.g., `layer_service.py` → `layer_query_service.py` + `layer_modification_service.py`)

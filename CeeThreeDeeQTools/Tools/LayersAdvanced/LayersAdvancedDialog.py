@@ -16,12 +16,15 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QPushButton,
     QLabel,
     QCheckBox,
     QLineEdit,
     QMenu,
-    QTextEdit
+    QTextEdit,
+    QToolBar,
+    QAction
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QEvent
 from qgis.PyQt.QtGui import QIcon
@@ -105,6 +108,9 @@ class LayersAdvancedDialog(QDockWidget):
         # Connect to QGIS project signals
         self.connect_project_signals()
         
+        # Connect signals for existing layers
+        self.connect_existing_layer_signals()
+        
         # Initial load of layers
         self.refresh_layers()
     
@@ -125,6 +131,38 @@ class LayersAdvancedDialog(QDockWidget):
         title_layout.addWidget(refresh_btn)
         
         layout.addLayout(title_layout)
+        
+        # Toolbar
+        toolbar = QToolBar()
+        # Set icon size to 80% of default
+        default_size = toolbar.iconSize()
+        toolbar.setIconSize(default_size * 0.8)
+        # Only show icons, not text
+        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        
+        # Expand All Groups action
+        expand_action = QAction(QIcon(":/images/themes/default/mActionExpandTree.svg"), "Expand All Groups", self)
+        expand_action.setToolTip("Expand all groups")
+        expand_action.triggered.connect(self.expand_all_groups)
+        toolbar.addAction(expand_action)
+        
+        # Collapse All Groups action
+        collapse_action = QAction(QIcon(":/images/themes/default/mActionCollapseTree.svg"), "Collapse All Groups", self)
+        collapse_action.setToolTip("Collapse all groups")
+        collapse_action.triggered.connect(self.collapse_all_groups)
+        toolbar.addAction(collapse_action)
+        
+        toolbar.addSeparator()
+        
+        # Toggle Expand/Collapse All Layers action
+        self.toggle_layers_action = QAction(QIcon(":/images/themes/default/mActionExpandNewTree.svg"), "Expand All Layers", self)
+        self.toggle_layers_action.setToolTip("Expand/collapse all layers (show/hide symbology)")
+        self.toggle_layers_action.triggered.connect(self.toggle_all_layers)
+        toolbar.addAction(self.toggle_layers_action)
+        
+        toolbar.addSeparator()
+        
+        layout.addWidget(toolbar)
         
         # Filter/search box
         search_layout = QHBoxLayout()
@@ -260,14 +298,28 @@ class LayersAdvancedDialog(QDockWidget):
         """Connect to QGIS project signals for automatic updates."""
         SignalManagerService.connect_project_signals(self)
     
+    def connect_existing_layer_signals(self):
+        """Connect signals for all existing layers in the project."""
+        project = QgsProject.instance()
+        layers = list(project.mapLayers().values())
+        self.log_debug(f"\n=== Connecting signals for {len(layers)} existing layers ===")
+        if layers:
+            self.connect_layer_signals(layers)
+        else:
+            self.log_debug("No existing layers to connect")
+    
     def on_project_loaded(self):
         """Handle project loaded event - refresh layers after a delay to ensure layers are fully loaded."""
+        self.log_debug("\n=== on_project_loaded() called ===")
+        # Connect signals for layers in the new project
+        self.connect_existing_layer_signals()
         # Use a single-shot timer to refresh after layers are fully loaded
         from qgis.PyQt.QtCore import QTimer
         QTimer.singleShot(100, self.refresh_layers)
     
     def connect_layer_signals(self, layers):
         """Connect to signals for newly added layers."""
+        self.log_debug(f"\nconnect_layer_signals() called with {len(layers)} layers")
         SignalManagerService.connect_layer_signals(self, layers)
         # Also connect CRS changes
         for layer in layers:
@@ -278,13 +330,26 @@ class LayersAdvancedDialog(QDockWidget):
     
     def on_renderer_changed(self):
         """Handle renderer/symbology changes (e.g., from QGIS layer styling panel)."""
+        sender = self.sender()
+        self.log_debug(f"\n>>> on_renderer_changed() called! sender={sender.name() if sender else 'None'}, type={type(sender).__name__ if sender else 'None'}")
+        self.log_debug(f"    _updating_visibility = {self._updating_visibility}")
+        
         if not self._updating_visibility:
-            sender = self.sender()
-            # Update just the symbology checkboxes for the changed layer
+            # For rasters, we need to rebuild symbology items (gradient/discrete list changes)
+            # For vectors, we can just update checkboxes
             if sender:
-                self.update_layer_symbology_checkboxes(sender)
+                from qgis.core import QgsRasterLayer
+                if isinstance(sender, QgsRasterLayer):
+                    self.log_debug(f"    → Detected QgsRasterLayer, calling update_layer_symbology_items()")
+                    self.update_layer_symbology_items(sender)
+                else:
+                    self.log_debug(f"    → Detected vector layer, calling update_layer_symbology_checkboxes()")
+                    self.update_layer_symbology_checkboxes(sender)
             else:
+                self.log_debug(f"    → No sender, calling refresh_layers()")
                 self.refresh_layers()
+        else:
+            self.log_debug(f"    → Skipped (updating_visibility=True)")
     
     def on_legend_changed(self):
         """Handle legend changes - fires when symbology checkboxes are toggled in QLP."""
@@ -375,10 +440,79 @@ class LayersAdvancedDialog(QDockWidget):
             except (TypeError, RuntimeError):
                 pass
     
+    def update_layer_symbology_items(self, layer):
+        """
+        Update symbology child items for a specific raster layer.
+        Used when raster renderer/interpolation changes.
+        """
+        self.log_debug(f"\n=== update_layer_symbology_items() called for {layer.name()} ===")
+        self.log_debug(f"    Layer ID: {layer.id()}")
+        self.log_debug(f"    Layer type: {type(layer).__name__}")
+        
+        try:
+            # Find the layer item in the tree
+            layer_item = self._find_layer_item(layer.id())
+            if not layer_item:
+                self.log_debug(f"    ✗ Could not find tree item for layer {layer.name()}")
+                return
+            
+            self.log_debug(f"    ✓ Found layer item: {layer_item.text(0)}")
+            self.log_debug(f"    Current child count: {layer_item.childCount()}")
+            
+            # Remove all existing children
+            removed_count = 0
+            while layer_item.childCount() > 0:
+                layer_item.removeChild(layer_item.child(0))
+                removed_count += 1
+            self.log_debug(f"    Removed {removed_count} existing children")
+            
+            # Rebuild symbology items for this layer
+            from qgis.core import QgsRasterLayer
+            if isinstance(layer, QgsRasterLayer):
+                self.log_debug(f"    Calling LayerTreeBuilder.add_raster_symbology_items()...")
+                LayerTreeBuilder.add_raster_symbology_items(layer, layer_item, self)
+                self.log_debug(f"    ✓ Rebuilt raster symbology for {layer.name()}, new child count: {layer_item.childCount()}")
+            
+        except Exception as e:
+            self.log_debug(f"    ✗ ERROR updating symbology items: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _find_layer_item(self, layer_id):
+        """
+        Find a layer tree item by layer ID.
+        
+        Args:
+            layer_id: The layer ID to search for
+            
+        Returns:
+            QTreeWidgetItem or None
+        """
+        self.log_debug(f"    _find_layer_item() searching for layer_id: {layer_id}")
+        # Search through all items
+        iterator = QTreeWidgetItemIterator(self.layer_tree)
+        items_checked = 0
+        while iterator.value():
+            item = iterator.value()
+            items_checked += 1
+            # Check if this item represents a layer with matching ID
+            item_type = item.data(0, Qt.UserRole + 1)
+            if item_type == "layer":
+                item_layer_id = item.data(0, Qt.UserRole)
+                self.log_debug(f"      Found layer item: {item.text(0)} (id={item_layer_id})")
+                if item_layer_id == layer_id:
+                    self.log_debug(f"      ✓ Match found!")
+                    return item
+            iterator += 1
+        self.log_debug(f"    Checked {items_checked} items, no match found")
+        return None
+    
     def refresh_layers(self):
         """Refresh the layer list from the current project."""
+        self.log_debug("========== refresh_layers() CALLED ==========")
         # Don't refresh if we're in the middle of updating visibility
         if self._updating_visibility:
+            self.log_debug("Skipping refresh - _updating_visibility is True")
             return
         
         # Temporarily disconnect the itemChanged signal to avoid recursion
@@ -396,8 +530,10 @@ class LayersAdvancedDialog(QDockWidget):
             project = QgsProject.instance()
             root = project.layerTreeRoot()
             
+            self.log_debug(f"refresh_layers() calling build_tree_from_node, root={root}, has {len(root.children())} children")
+            
             # Build tree from layer tree structure
-            LayerTreeBuilder.build_tree_from_node(root, None, self.layer_tree)
+            LayerTreeBuilder.build_tree_from_node(root, None, self.layer_tree, self)
             
             # Expand all groups by default
             self.layer_tree.expandAll()
@@ -511,13 +647,17 @@ class LayersAdvancedDialog(QDockWidget):
         layer_id = item.data(0, Qt.UserRole)
         range_index = item.data(0, Qt.UserRole + 2)
         
-        # Temporarily disconnect our handler to avoid catching our own signal
+        # Temporarily disconnect our handlers to avoid catching our own signals
         project = QgsProject.instance()
         layer = project.mapLayer(layer_id)
         
         if layer:
             try:
                 layer.rendererChanged.disconnect(self.on_renderer_changed)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                layer.legendChanged.disconnect(self.on_legend_changed)
             except (TypeError, RuntimeError):
                 pass
         
@@ -527,10 +667,14 @@ class LayersAdvancedDialog(QDockWidget):
                 layer_id, range_index, visible, self.iface
             )
         finally:
-            # Reconnect our handler
+            # Reconnect our handlers
             if layer:
                 try:
                     layer.rendererChanged.connect(self.on_renderer_changed)
+                except (TypeError, RuntimeError):
+                    pass
+                try:
+                    layer.legendChanged.connect(self.on_legend_changed)
                 except (TypeError, RuntimeError):
                     pass
     
@@ -709,18 +853,42 @@ class LayersAdvancedDialog(QDockWidget):
             self.toggle_selected_visibility(True)
             return
         
-        # Otherwise show all
+        # Otherwise show all - recursively process all items
+        self._updating_visibility = True
         self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
         
         try:
-            for i in range(self.layer_tree.topLevelItemCount()):
-                item = self.layer_tree.topLevelItem(i)
-                item.setCheckState(0, Qt.Checked)
-                layer_id = item.data(0, Qt.UserRole)
-                VisibilityService.set_layer_visibility(layer_id, True)
+            def show_all_recursive(parent_item):
+                """Recursively show all layers and groups."""
+                for i in range(parent_item.childCount()):
+                    item = parent_item.child(i)
+                    item_type = item.data(0, Qt.UserRole + 1)
+                    item_id = item.data(0, Qt.UserRole)
+                    
+                    # Set checkbox
+                    item.setCheckState(0, Qt.Checked)
+                    
+                    # Update visibility in QGIS
+                    if item_type == "layer":
+                        VisibilityService.set_layer_visibility(item_id, True)
+                    elif item_type == "group":
+                        project = QgsProject.instance()
+                        root = project.layerTreeRoot()
+                        group_node = root.findGroup(item_id)
+                        if group_node:
+                            LayerOperationsService.set_group_visibility_recursive(group_node, True)
+                    
+                    # Recurse into children
+                    if item.childCount() > 0:
+                        show_all_recursive(item)
+            
+            # Process top-level items
+            root = self.layer_tree.invisibleRootItem()
+            show_all_recursive(root)
         
         finally:
             self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
+            self._updating_visibility = False
     
     def hide_all_layers(self):
         """Hide all layers or selected layers if any are selected."""
@@ -731,18 +899,42 @@ class LayersAdvancedDialog(QDockWidget):
             self.toggle_selected_visibility(False)
             return
         
-        # Otherwise hide all
+        # Otherwise hide all - recursively process all items
+        self._updating_visibility = True
         self.layer_tree.itemChanged.disconnect(self.on_item_visibility_changed)
         
         try:
-            for i in range(self.layer_tree.topLevelItemCount()):
-                item = self.layer_tree.topLevelItem(i)
-                item.setCheckState(0, Qt.Unchecked)
-                layer_id = item.data(0, Qt.UserRole)
-                VisibilityService.set_layer_visibility(layer_id, False)
+            def hide_all_recursive(parent_item):
+                """Recursively hide all layers and groups."""
+                for i in range(parent_item.childCount()):
+                    item = parent_item.child(i)
+                    item_type = item.data(0, Qt.UserRole + 1)
+                    item_id = item.data(0, Qt.UserRole)
+                    
+                    # Set checkbox
+                    item.setCheckState(0, Qt.Unchecked)
+                    
+                    # Update visibility in QGIS
+                    if item_type == "layer":
+                        VisibilityService.set_layer_visibility(item_id, False)
+                    elif item_type == "group":
+                        project = QgsProject.instance()
+                        root = project.layerTreeRoot()
+                        group_node = root.findGroup(item_id)
+                        if group_node:
+                            LayerOperationsService.set_group_visibility_recursive(group_node, False)
+                    
+                    # Recurse into children
+                    if item.childCount() > 0:
+                        hide_all_recursive(item)
+            
+            # Process top-level items
+            root = self.layer_tree.invisibleRootItem()
+            hide_all_recursive(root)
         
         finally:
             self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
+            self._updating_visibility = False
     
     def toggle_selected_visibility(self, visible):
         """Toggle visibility for all selected items."""
@@ -780,6 +972,29 @@ class LayersAdvancedDialog(QDockWidget):
         if not item:
             return
         
+        # Check if multiple layers are selected
+        selected_items = self.layer_tree.selectedItems()
+        if len(selected_items) > 1:
+            # Multiple selection - check if all are layers
+            layers = []
+            project = QgsProject.instance()
+            
+            for sel_item in selected_items:
+                sel_item_type = sel_item.data(0, Qt.UserRole + 1)
+                if sel_item_type == "layer":
+                    layer_id = sel_item.data(0, Qt.UserRole)
+                    layer = project.mapLayer(layer_id)
+                    if layer:
+                        layers.append(layer)
+            
+            # Show multi-layer menu if we have multiple layers
+            if len(layers) > 1:
+                menu = LayerContextMenu.create_multi_layer_menu(layers, self.iface)
+                menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
+                # Refresh after any group operations
+                self.refresh_layers()
+                return
+        
         item_type = item.data(0, Qt.UserRole + 1)
         
         if item_type == "layer":
@@ -795,16 +1010,24 @@ class LayersAdvancedDialog(QDockWidget):
             menu = LayerContextMenu.create_layer_menu(
                 layer, 
                 self.iface,
-                rename_callback=lambda: self.start_rename_item(item)
+                rename_callback=lambda: self.start_rename_item(item),
+                debug_callback=self.log_debug
             )
             menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
         
         elif item_type == "group":
-            # Group context menu - just rename for now
+            # Group context menu
             menu = QMenu(self)
             
             rename_action = menu.addAction(QIcon(":/images/themes/default/mActionEditTable.svg"), "Rename Group\\tF2")
             rename_action.triggered.connect(lambda: self.start_rename_item(item))
+            
+            menu.addSeparator()
+            
+            # Remove group
+            group_name = item.data(0, Qt.UserRole)
+            remove_action = menu.addAction(QIcon(":/images/themes/default/mActionRemoveLayer.svg"), "Remove Group")
+            remove_action.triggered.connect(lambda: self.remove_group(group_name))
             
             menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
     
@@ -1016,6 +1239,27 @@ class LayersAdvancedDialog(QDockWidget):
                 item.setSelected(True)
             self.layer_tree.scrollToItem(item)
     
+    def remove_group(self, group_name):
+        """
+        Remove a group from the layer tree.
+        
+        Args:
+            group_name: Name of the group to remove
+        """
+        try:
+            project = QgsProject.instance()
+            root = project.layerTreeRoot()
+            group_node = root.findGroup(group_name)
+            
+            if group_node:
+                parent = group_node.parent()
+                if parent:
+                    parent.removeChildNode(group_node)
+                    self.refresh_layers()
+                    self.log_debug(f"Removed group: {group_name}")
+        except Exception as e:
+            self.log_debug(f"Error removing group: {e}")
+    
     def closeEvent(self, event):
         """Handle widget close event."""
         # Save column visibility before closing
@@ -1070,3 +1314,97 @@ class LayersAdvancedDialog(QDockWidget):
             pass
         
         event.accept()
+    
+    def expand_all_groups(self):
+        """Expand all groups in the tree."""
+        self.layer_tree.expandAll()
+        self.log_debug("Expanded all groups")
+    
+    def collapse_all_groups(self):
+        """Collapse all groups in the tree."""
+        self.layer_tree.collapseAll()
+        self.log_debug("Collapsed all groups")
+    
+    def toggle_all_layers(self):
+        """Toggle between expanding and collapsing all layers based on first layer's state."""
+        # Find the first layer item to check its state
+        def find_first_layer(item):
+            """Recursively find the first layer item."""
+            for i in range(item.childCount()):
+                child = item.child(i)
+                item_type = child.data(0, Qt.UserRole + 1)
+                
+                if item_type == "layer":
+                    return child
+                elif item_type == "group":
+                    # Search within group
+                    result = find_first_layer(child)
+                    if result:
+                        return result
+            return None
+        
+        root = self.layer_tree.invisibleRootItem()
+        first_layer = find_first_layer(root)
+        
+        if first_layer:
+            # Check if first layer is expanded
+            is_expanded = first_layer.isExpanded()
+            
+            if is_expanded:
+                # Currently expanded, so collapse all
+                self.collapse_all_layers()
+                self.toggle_layers_action.setIcon(QIcon(":/images/themes/default/mActionExpandNewTree.svg"))
+                self.toggle_layers_action.setText("Expand All Layers")
+                self.toggle_layers_action.setToolTip("Expand all layers (show symbology)")
+            else:
+                # Currently collapsed, so expand all
+                self.expand_all_layers()
+                self.toggle_layers_action.setIcon(QIcon(":/images/themes/default/mActionCollapseNewTree.svg"))
+                self.toggle_layers_action.setText("Collapse All Layers")
+                self.toggle_layers_action.setToolTip("Collapse all layers (hide symbology)")
+        else:
+            # No layers found, default to expand
+            self.expand_all_layers()
+            self.toggle_layers_action.setIcon(QIcon(":/images/themes/default/mActionCollapseNewTree.svg"))
+            self.toggle_layers_action.setText("Collapse All Layers")
+            self.toggle_layers_action.setToolTip("Collapse all layers (hide symbology)")
+    
+    def expand_all_layers(self):
+        """Expand all layer items (showing symbology) but not groups."""
+        def expand_layers_recursive(item):
+            """Recursively expand only layer items."""
+            for i in range(item.childCount()):
+                child = item.child(i)
+                item_type = child.data(0, Qt.UserRole + 1)
+                
+                if item_type == "layer":
+                    # Expand the layer to show symbology
+                    self.layer_tree.expandItem(child)
+                elif item_type == "group":
+                    # Don't expand the group, but process its children
+                    expand_layers_recursive(child)
+        
+        # Process top-level items
+        root = self.layer_tree.invisibleRootItem()
+        expand_layers_recursive(root)
+        self.log_debug("Expanded all layers")
+    
+    def collapse_all_layers(self):
+        """Collapse all layer items (hiding symbology) but not groups."""
+        def collapse_layers_recursive(item):
+            """Recursively collapse only layer items."""
+            for i in range(item.childCount()):
+                child = item.child(i)
+                item_type = child.data(0, Qt.UserRole + 1)
+                
+                if item_type == "layer":
+                    # Collapse the layer to hide symbology
+                    self.layer_tree.collapseItem(child)
+                elif item_type == "group":
+                    # Don't collapse the group, but process its children
+                    collapse_layers_recursive(child)
+        
+        # Process top-level items
+        root = self.layer_tree.invisibleRootItem()
+        collapse_layers_recursive(root)
+        self.log_debug("Collapsed all layers")
