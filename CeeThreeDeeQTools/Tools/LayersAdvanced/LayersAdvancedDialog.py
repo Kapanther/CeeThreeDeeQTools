@@ -256,6 +256,12 @@ class LayersAdvancedDialog(QDockWidget):
         self.info_label = QLabel("Total layers: 0")
         layout.addWidget(self.info_label)
         
+        # Filter info label (shows filtered count)
+        self.filter_info_label = QLabel("")
+        self.filter_info_label.setStyleSheet("color: #FF6B35; font-weight: bold;")  # Orange color for visibility
+        self.filter_info_label.setVisible(False)  # Hidden by default
+        layout.addWidget(self.filter_info_label)
+        
         # Debug console
         debug_layout = QVBoxLayout()
         debug_header = QHBoxLayout()
@@ -552,7 +558,17 @@ class LayersAdvancedDialog(QDockWidget):
     
     def filter_layers(self, text):
         """Filter layers based on search text, including child layers in groups."""
-        FilterService.filter_tree(self.layer_tree, text)
+        total_count, hidden_count = FilterService.filter_tree(self.layer_tree, text)
+        
+        # Update the main info label with visible/total counts
+        visible_count = total_count - hidden_count
+        if hidden_count > 0:
+            self.info_label.setText(f"Showing {visible_count} of {total_count} layers")
+            self.filter_info_label.setText(f"Filtered: {hidden_count} layer{'s' if hidden_count != 1 else ''} hidden from view")
+            self.filter_info_label.setVisible(True)
+        else:
+            self.info_label.setText(f"Total layers: {total_count}")
+            self.filter_info_label.setVisible(False)
     
     def on_item_visibility_changed(self, item, column):
         """Handle checkbox state change for layer visibility."""
