@@ -971,6 +971,8 @@ class LayersAdvancedDialog(QDockWidget):
                 # Update actual layer/group visibility
                 if item_type == "layer":
                     VisibilityService.set_layer_visibility(item_id, visible)
+                    # Emit signal to notify other components
+                    self.layerVisibilityChanged.emit(item_id, visible)
                 elif item_type == "group":
                     # Get the QGIS group node and set visibility recursively
                     project = QgsProject.instance()
