@@ -37,7 +37,7 @@ from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo
 from .ctdq_support import ctdprocessing_settingsdefaults
-from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams
+from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams, PointsAlongPaths
 
 import os
 import inspect
@@ -111,8 +111,7 @@ class CTDQProvider(QgsProcessingProvider):
         self.addAlgorithm(ExportProjectLayerStyles())      
         self.addAlgorithm(FindRasterPonds())  
         self.addAlgorithm(CalculateStageStoragePond())
-        # add additional algorithms here
-
+        self.addAlgorithm(PointsAlongPaths())
         # add additional algorithms here
 
     def id(self):

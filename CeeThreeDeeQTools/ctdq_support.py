@@ -137,6 +137,27 @@ ctdprocessing_command_info = {
             f"<li>{ctdprocessing_settingshelp_text}</li>"
             "</ul>"
         )
+    },
+    "PointsAlongPaths": {
+        "disp": "Points Along Paths",
+        "group": ctdgroup_info[1]["group"],
+        "group_id": ctdgroup_info[1]["group_id"],
+        "shortHelp": (
+            "Converts line features to point features along the line path. Maintains existing attributes from the line layer and adds a 'distance' attribute."
+            "<h3>Parameters</h3>"
+            "<ul>"
+            f"<li>{fop}Input Line Layer:{fcc} Line vector layer to convert to points.</li>"
+            f"<li>{fop}Keep Existing Vertices:{fcc} If checked, existing line vertices will be included as points (default: True).</li>"
+            f"<li>{fop}Interval Distance:{fcc} Distance interval for creating additional points along the line (default: 10.0).</li>"
+            f"<li>{fop}Offset Distance:{fcc} Distance to offset points perpendicular to the line. Negative values offset left, positive values offset right (default: 0.0).</li>"
+            f"<li>{fop}Start Distance Modifier:{fcc} Value added to the distance attribute for all points. Use to adjust distance values (default: 0.0).</li>"
+            f"<li>{fop}Output Points:{fcc} Output point layer with line attributes plus distance field.</li>"
+            "</ul>"
+            "<h3>Processing Settings</h3>"
+            "<ul>"
+            f"<li>{ctdprocessing_settingshelp_text}</li>"
+            "</ul>"
+        )
     }
 
 }
