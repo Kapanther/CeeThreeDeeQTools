@@ -154,12 +154,37 @@ class PackageLayerUpdaterDialog(QDialog):
         self.fix_fids_checkbox = QCheckBox("Fix Invalid FIDs")
         self.fix_fids_checkbox.setChecked(False)  # Default to OFF
         self.fix_fids_checkbox.setToolTip(
-            "If checked, FID problems (duplicates, NULL values, etc.) will be automatically fixed.\n"
-            "Duplicate FIDs will be renumbered to the next available values.\n"
-            "If unchecked, layers with invalid FIDs will be skipped with a warning,\n"
-            "since geopackages require unique, non-NULL FID values."
+            "⚠ WARNING: Fixes FID problems in the source layer.\n\n"
+            "This will:\n"
+            "  • Check for invalid FIDs (duplicates, NULL, zero, negative)\n"
+            "  • Modify the CURRENT LAYER in your project\n"
+            "  • Renumber invalid FIDs to unique positive values (1, 2, 3...)\n\n"
+            "When enabled, you can choose to preserve the fixed FID values or let\n"
+            "the geopackage auto-generate new ones (safer, recommended).\n\n"
+            "When disabled, layers with invalid FIDs will be skipped."
         )
+        self.fix_fids_checkbox.stateChanged.connect(self.on_fix_fids_changed)
         options_layout.addWidget(self.fix_fids_checkbox)
+        
+        # Preserve Original FID checkbox
+        self.preserve_fid_checkbox = QCheckBox("Preserve Original FID")
+        self.preserve_fid_checkbox.setChecked(False)  # Default to OFF
+        self.preserve_fid_checkbox.setEnabled(False)  # Disabled until Fix FIDs is checked
+        self.preserve_fid_checkbox.setToolTip(
+            "Whether to preserve the FID values from your source layer.\n\n"
+            "UNCHECKED (Recommended):\n"
+            "  • FID field is excluded from the geopackage write\n"
+            "  • Geopackage auto-generates new FIDs (1, 2, 3...)\n"
+            "  • No risk of FID conflicts\n"
+            "  • Always works reliably\n\n"
+            "CHECKED (Advanced):\n"
+            "  • FID values from source layer are written to geopackage\n"
+            "  • FID field is reordered to first position for proper structure\n"
+            "  • Use when you need specific FID values preserved\n"
+            "  • Requires 'Fix Invalid FIDs' to ensure values are valid\n\n"
+            "Note: Only available when 'Fix Invalid FIDs' is enabled."
+        )
+        options_layout.addWidget(self.preserve_fid_checkbox)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
@@ -231,6 +256,16 @@ class PackageLayerUpdaterDialog(QDialog):
         selected_items = self.layer_list.selectedItems()
         self.selected_layers = [item.data(Qt.UserRole) for item in selected_items]
         self.selected_count_label.setText(f"Selected: {len(self.selected_layers)} layers")
+    
+    def on_fix_fids_changed(self, state):
+        """Handle Fix FIDs checkbox state change."""
+        # Enable/disable Preserve FID checkbox based on Fix FIDs state
+        is_checked = (state == Qt.Checked)
+        self.preserve_fid_checkbox.setEnabled(is_checked)
+        
+        # If Fix FIDs is unchecked, also uncheck Preserve FID
+        if not is_checked:
+            self.preserve_fid_checkbox.setChecked(False)
     
     def select_all_layers(self):
         """Select all layers in the list."""
@@ -484,18 +519,22 @@ class PackageLayerUpdaterDialog(QDialog):
     def get_fix_fids(self):
         """Get whether to fix duplicate FIDs."""
         return self.fix_fids_checkbox.isChecked()
-
-    def append_console(self, message: str):
-        """Append a line to the console."""
-        try:
-            self.console.append(str(message))
-        except Exception:
-            pass
+    
+    def get_preserve_fid(self):
+        """Get whether to preserve original FID values."""
+        return self.preserve_fid_checkbox.isChecked()
     
     def clear_console(self):
         """Clear the console."""
         try:
             self.console.clear()
+        except Exception:
+            pass
+    
+    def append_console(self, message: str):
+        """Append a message to the console."""
+        try:
+            self.console.append(message)
         except Exception:
             pass
     

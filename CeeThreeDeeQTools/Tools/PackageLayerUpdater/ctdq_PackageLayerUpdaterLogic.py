@@ -28,7 +28,8 @@ class PackageLayerUpdaterLogic:
         target_geopackages: list,
         progress_callback=None,
         update_new_only: bool = False,
-        fix_fids: bool = False
+        fix_fids: bool = False,
+        preserve_fid: bool = False
     ):
         """
         Update layers in geopackages with data from the active project.
@@ -39,6 +40,7 @@ class PackageLayerUpdaterLogic:
             progress_callback: Optional callback function(message, progress)
             update_new_only: Only update layers that have been modified since last update
             fix_fids: Fix duplicate FID values by renumbering
+            preserve_fid: Preserve original FID values when writing to geopackage
         
         Returns:
             dict: Results with success/error information
@@ -161,7 +163,7 @@ class PackageLayerUpdaterLogic:
                                     )
                         
                             if PackageLayerUpdaterLogic._update_layer_in_geopackage(
-                                layer, gpkg_path, results
+                                layer, gpkg_path, results, fix_fids, preserve_fid
                             ):
                                 results['layers_updated'] += 1
                                 gpkg_modified = True
@@ -294,7 +296,9 @@ class PackageLayerUpdaterLogic:
     def _update_layer_in_geopackage(
         source_layer,  # Can be QgsVectorLayer or QgsRasterLayer
         gpkg_path: str,
-        results: dict = None
+        results: dict = None,
+        fix_fids: bool = False,
+        preserve_fid: bool = False
     ) -> bool:
         """
         Update a layer in a geopackage with data from the source layer.
@@ -304,6 +308,8 @@ class PackageLayerUpdaterLogic:
             source_layer: The layer from the active project (vector or raster)
             gpkg_path: Path to the geopackage
             results: Optional results dict for messages
+            fix_fids: Whether FIDs are being fixed (truncate layer first if True)
+            preserve_fid: Whether to preserve original FID values
         
         Returns:
             bool: True if successful
@@ -319,7 +325,7 @@ class PackageLayerUpdaterLogic:
                 )
             else:
                 return PackageLayerUpdaterLogic._update_vector_layer_in_geopackage(
-                    source_layer, gpkg_path, results
+                    source_layer, gpkg_path, results, fix_fids, preserve_fid
                 )
         
         except Exception as e:
@@ -332,7 +338,9 @@ class PackageLayerUpdaterLogic:
     def _update_vector_layer_in_geopackage(
         source_layer: QgsVectorLayer,
         gpkg_path: str,
-        results: dict = None
+        results: dict = None,
+        fix_fids: bool = False,
+        preserve_fid: bool = False
     ) -> bool:
         """
         Update a vector layer in a geopackage with data from the source layer.
@@ -342,6 +350,8 @@ class PackageLayerUpdaterLogic:
             source_layer: The vector layer from the active project
             gpkg_path: Path to the geopackage
             results: Optional results dict for messages
+            fix_fids: Whether FIDs are being fixed (truncate layer first if True)
+            preserve_fid: Whether to preserve original FID values
         
         Returns:
             bool: True if successful
@@ -357,6 +367,10 @@ class PackageLayerUpdaterLogic:
                         f"  Check if it's open in another application or if file permissions are read-only."
                     )
                 return False
+            
+            # When fix_fids is enabled, we skip the FID attribute field during write
+            # This allows the geopackage to auto-generate new FIDs and avoid conflicts
+            # (The FID field exclusion is configured in the write options below)
             
             # First, preserve the existing layer's metadata history from the geopackage
             existing_history = PackageLayerUpdaterLogic._get_layer_history(gpkg_path, source_layer.name())
@@ -381,18 +395,60 @@ class PackageLayerUpdaterLogic:
             layer_metadata.setLinks(source_metadata.links())
             layer_metadata.setHistory(updated_history)
             
-            # Prepare write options - use OVERWRITE mode (doesn't delete first!)
+            # Prepare write options - use OVERWRITE mode
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = "GPKG"
             options.layerName = source_layer.name()
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer  # Overwrites without deleting
+            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer  # Overwrites the layer
             options.layerMetadata = layer_metadata
             options.saveMetadata = True
+            
+            # Handle FID field ordering and preservation
+            fid_field_idx = -1
+            for idx, field in enumerate(source_layer.fields()):
+                if field.name().upper() == 'FID':
+                    fid_field_idx = idx
+                    break
+            
+            if not preserve_fid:
+                # Skip the FID field to let geopackage auto-generate new FIDs
+                # This prevents conflicts with existing FID values in the geopackage
+                if fid_field_idx >= 0:
+                    # Set attributes to exclude the FID field
+                    options.attributes = [i for i in range(source_layer.fields().count()) if i != fid_field_idx]
+                    print(f"[DEBUG] Excluding FID field from write (preserve_fid=False), writing {len(options.attributes)} fields")
+            else:
+                # Preserve FID - ensure it's the first field for proper geopackage structure
+                if fid_field_idx >= 0:
+                    # Reorder attributes so FID is first
+                    other_fields = [i for i in range(source_layer.fields().count()) if i != fid_field_idx]
+                    options.attributes = [fid_field_idx] + other_fields
+                    print(f"[DEBUG] preserve_fid=True, FID field (index {fid_field_idx}) will be first, writing {len(options.attributes)} fields")
+                else:
+                    print(f"[DEBUG] preserve_fid=True but no FID field found")
             
             # Retry logic: attempt write up to 3 times with delays
             max_attempts = 3
             attempt = 0
             last_error = None
+            
+            print(f"[DEBUG] About to write layer '{source_layer.name()}' to {gpkg_path}")
+            print(f"[DEBUG] Source layer feature count: {source_layer.featureCount()}")
+            print(f"[DEBUG] Source layer FID field name: FID (custom)")
+            
+            # Check FID values in source layer for debugging
+            fid_values = []
+            for feature in source_layer.getFeatures():
+                fid_field_idx = -1
+                for idx, field in enumerate(source_layer.fields()):
+                    if field.name().upper() == 'FID':
+                        fid_field_idx = idx
+                        break
+                if fid_field_idx >= 0:
+                    fid_val = feature.attribute(fid_field_idx)
+                    fid_values.append(fid_val)
+            print(f"[DEBUG] FID values in source layer: {sorted(fid_values)}")
+            print(f"[DEBUG] Unique FID count: {len(set(fid_values))}, Total features: {len(fid_values)}")
             
             while attempt < max_attempts:
                 attempt += 1
@@ -426,27 +482,35 @@ class PackageLayerUpdaterLogic:
                             source_count = source_layer.featureCount()
                             gpkg_count = check_layer.featureCount()
                             
+                            print(f"[DEBUG] Write succeeded! Source: {source_count} features, GPKG: {gpkg_count} features")
+                            
                             if source_count != gpkg_count:
                                 if results:
                                     results['warnings'].append(
                                         f"⚠ Feature count mismatch for '{source_layer.name()}': "
                                         f"source has {source_count}, geopackage has {gpkg_count}"
                                     )
+                        else:
+                            print(f"[DEBUG] Could not open check layer from geopackage")
                         
                         return True  # Success!
                     
                     else:
                         last_error = error[1]
+                        print(f"[DEBUG] Write attempt {attempt} failed: {last_error}")
                         # Check if it's a lock/readonly error that might resolve with retry
                         if "readonly" in last_error.lower() or "locked" in last_error.lower():
                             if attempt < max_attempts:
+                                print(f"[DEBUG] Retryable error detected, will retry...")
                                 continue  # Retry
                         else:
                             # Other error - don't retry
+                            print(f"[DEBUG] Non-retryable error, breaking out of retry loop")
                             break
                 
                 except Exception as e:
                     last_error = str(e)
+                    print(f"[DEBUG] Write attempt {attempt} exception: {last_error}")
                     if attempt < max_attempts:
                         continue  # Retry
                     else:
@@ -617,6 +681,57 @@ class PackageLayerUpdaterLogic:
                 results['errors'].append(f"Error writing raster history to geopackage: {str(e)}")
             print(f"Error writing raster history: {e}")
             return False
+
+    @staticmethod
+    def _delete_layer_from_gpkg(gpkg_path: str, layer_name: str) -> None:
+        """
+        Delete a layer completely from a geopackage using SQLite and OGR.
+        This removes all FID constraints and allows fresh re-creation.
+        
+        Args:
+            gpkg_path: Path to the geopackage file
+            layer_name: Name of the layer to delete
+            
+        Raises:
+            Exception: If the deletion fails
+        """
+        try:
+            print(f"[DEBUG] Starting deletion of layer '{layer_name}' from {gpkg_path}")
+            
+            # Use OGR to delete the layer properly - this clears all constraints
+            from osgeo import ogr
+            driver = ogr.GetDriverByName("GPKG")
+            ds = driver.Open(gpkg_path, update=True)
+            
+            if ds is None:
+                raise Exception(f"Could not open geopackage: {gpkg_path}")
+            
+            # Find the layer
+            layer = None
+            for i in range(ds.GetLayerCount()):
+                lyr = ds.GetLayer(i)
+                if lyr.GetName() == layer_name:
+                    layer = lyr
+                    break
+            
+            if layer is None:
+                print(f"[DEBUG] Layer '{layer_name}' not found in geopackage, nothing to delete")
+                ds = None
+                return
+            
+            # Delete the layer using OGR
+            result = ds.DeleteLayer(ds.GetLayerIndex(layer_name))
+            print(f"[DEBUG] OGR DeleteLayer result: {result}")
+            
+            ds = None  # Close the dataset
+            print(f"[DEBUG] Layer '{layer_name}' deleted successfully from geopackage")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error deleting layer from geopackage: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't re-raise, let it fall through to overwrite attempt
+            pass
 
     @staticmethod
     def _get_layer_history(gpkg_path: str, layer_name: str) -> list:
@@ -815,17 +930,21 @@ class PackageLayerUpdaterLogic:
             for idx, feature in enumerate(layer.getFeatures()):
                 fid_value = feature.attribute(fid_field_idx)
                 
-                # Check if FID is a valid integer
-                # This catches: None, empty strings, non-numeric strings, floats, etc.
+                # Check if FID is a valid integer (positive, non-zero)
+                # Geopackages require FIDs to be positive integers (1, 2, 3, ...)
+                # This catches: None, empty strings, non-numeric strings, floats, zero, negative values
                 is_valid_int = False
                 try:
                     if fid_value is not None and fid_value != '':
                         # Try to convert to int and check it's equal (catches floats like 1.5)
                         int_value = int(fid_value)
-                        # Also check that converting to int didn't change the value (e.g., 1.5 -> 1)
+                        # Check that:
+                        # 1. Converting to int didn't change the value (e.g., 1.5 -> 1)
+                        # 2. Value is positive (greater than 0)
                         if isinstance(fid_value, int) or (isinstance(fid_value, (float, str)) and float(fid_value) == int_value):
-                            is_valid_int = True
-                            fid_value = int_value  # Normalize to integer
+                            if int_value > 0:  # Must be positive (1, 2, 3, ...)
+                                is_valid_int = True
+                                fid_value = int_value  # Normalize to integer
                 except (ValueError, TypeError):
                     pass  # Invalid - will be caught below
                 

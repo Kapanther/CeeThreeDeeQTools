@@ -151,20 +151,8 @@ class CTDQPlugin(object):
         self.layersAdvancedAction.triggered.connect(self.toggleLayersAdvancedDock)
         self.menu.addAction(self.layersAdvancedAction)
 
-        # Create the Layers Advanced dock widget immediately so QGIS can restore its state
-        from .Tools.LayersAdvanced.LayersAdvancedDialog import LayersAdvancedDialog
-        self.layersAdvancedDock = LayersAdvancedDialog(self.iface, self.iface.mainWindow())
-        self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.layersAdvancedDock)
-        
-        # Connect visibility changed to update action state (use self reference explicitly)
-        def update_action_state(visible):
-            if hasattr(self, 'layersAdvancedAction'):
-                self.layersAdvancedAction.setChecked(visible)
-        
-        self.layersAdvancedDock.visibilityChanged.connect(update_action_state)
-        
-        # Sync action checked state with dock visibility
-        self.layersAdvancedAction.setChecked(self.layersAdvancedDock.isVisible())
+        # Initialize dock widget reference (created on first toggle)
+        self.layersAdvancedDock = None
 
         # Create action that will start plugin help
         self.helpAction = QAction(
@@ -307,6 +295,7 @@ class CTDQPlugin(object):
             target_geopackages = dialog.get_target_geopackages()
             update_new_only = dialog.get_update_new_only()
             fix_fids = dialog.get_fix_fids()
+            preserve_fid = dialog.get_preserve_fid()
             
             # Create progress dialog
             progress = QProgressDialog(
@@ -337,7 +326,8 @@ class CTDQPlugin(object):
                     target_geopackages,
                     update_progress,
                     update_new_only=update_new_only,
-                    fix_fids=fix_fids
+                    fix_fids=fix_fids,
+                    preserve_fid=preserve_fid
                 )
                 progress.close()
                 
@@ -364,6 +354,20 @@ class CTDQPlugin(object):
 
     def toggleLayersAdvancedDock(self, checked):
         """Toggle the Layers Advanced dock widget."""
+        # Create the dock widget on first toggle if it doesn't exist
+        if self.layersAdvancedDock is None:
+            from .Tools.LayersAdvanced.LayersAdvancedDialog import LayersAdvancedDialog
+            self.layersAdvancedDock = LayersAdvancedDialog(self.iface, self.iface.mainWindow())
+            self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.layersAdvancedDock)
+            
+            # Connect visibility changed to update action state
+            def update_action_state(visible):
+                if hasattr(self, 'layersAdvancedAction'):
+                    self.layersAdvancedAction.setChecked(visible)
+            
+            self.layersAdvancedDock.visibilityChanged.connect(update_action_state)
+        
+        # Toggle visibility based on checked state
         if checked:
             self.layersAdvancedDock.show()
         else:
