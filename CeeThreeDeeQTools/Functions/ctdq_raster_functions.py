@@ -12,7 +12,7 @@ from qgis.core import (
 
 class CtdqRasterFunctions:
     @staticmethod
-    def ctdq_raster_fromNumpy(input_numpy,width,height,extent, crs, feedback,no_data_value: int=-32567):
+    def ctdq_raster_fromNumpy(input_numpy,width,height,extent, crs, feedback,no_data_value: int = -32567):
         try:
             """
             Creates a raster layer in qgsprocessing.temporaryfrom a numpy array and returns it.

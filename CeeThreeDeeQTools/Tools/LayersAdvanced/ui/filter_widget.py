@@ -1,4 +1,4 @@
-"""
+﻿"""
 Service for filtering/searching tree items.
 """
 
@@ -99,7 +99,7 @@ class FilterService:
         
         for i in range(parent_item.childCount()):
             child = parent_item.child(i)
-            item_type = child.data(0, Qt.UserRole + 1)
+            item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
             
             # Only count actual layers, not groups or symbology items
             if item_type == "layer":
@@ -125,7 +125,7 @@ class FilterService:
         
         for i in range(parent_item.childCount()):
             child = parent_item.child(i)
-            item_type = child.data(0, Qt.UserRole + 1)
+            item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
             
             # Only count hidden actual layers, not groups or symbology items
             if item_type == "layer" and child.isHidden():

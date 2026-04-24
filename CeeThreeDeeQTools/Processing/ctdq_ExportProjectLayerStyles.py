@@ -28,9 +28,8 @@ from qgis.core import (
     QgsRasterLayer,
     QgsProcessingParameterFolderDestination
 )
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QScrollArea, QWidget
+from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QScrollArea, QWidget
 import xml.etree.ElementTree as ET
-from xml.dom.minidom import parseString
 from ..ctdq_support import ctdprocessing_command_info
 import os
 
@@ -227,14 +226,14 @@ class ExportProjectLayerStyles(QgsProcessingAlgorithm):
 
         # Write the XML file only if an output file path is specified
         if output_file:
-            # Convert the XML structure to a string and prettify it
-            xml_string = ET.tostring(root, encoding="utf-8")
-            pretty_xml = parseString(xml_string).toprettyxml(indent="  ")
+            # Add stable indentation without parsing XML through minidom.
+            self._indent_xml(root)
+            xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
             # Write the prettified XML to the output file
             try:
-                with open(output_file, "w", encoding="utf-8") as file:
-                    file.write(pretty_xml)
+                with open(output_file, "wb") as file:
+                    file.write(xml_bytes)
                 feedback.pushInfo(f"XML file successfully written to {output_file}")
             except Exception as e:
                 raise QgsProcessingException(f"Failed to write XML file: {e}")
@@ -368,6 +367,23 @@ class ExportProjectLayerStyles(QgsProcessingAlgorithm):
             feedback.pushInfo(f"QML file saved: {file_path}")
         except Exception as e:
             feedback.reportError(f"Failed to save QML for layer {layer.name()}: {e}")
+
+    def _indent_xml(self, element, level=0):
+        """
+        Recursively applies indentation for deterministic, readable XML output.
+        """
+        indent = "\n" + ("  " * level)
+        child_indent = "\n" + ("  " * (level + 1))
+
+        if len(element):
+            if not element.text or not element.text.strip():
+                element.text = child_indent
+            for child in element:
+                self._indent_xml(child, level + 1)
+            if not element[-1].tail or not element[-1].tail.strip():
+                element[-1].tail = indent
+        if level and (not element.tail or not element.tail.strip()):
+            element.tail = indent
 
     def createInstance(self):
         return self.__class__()

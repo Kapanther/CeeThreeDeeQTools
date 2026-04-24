@@ -45,7 +45,7 @@ from qgis.core import (
     QgsProcessingOutputLayerDefinition,  # import for registering output layer details
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from PyQt5.QtCore import QCoreApplication, QMetaType
+from qgis.PyQt.QtCore import QCoreApplication, QMetaType
 from ..ctdq_support import ctdprocessing_command_info, ctdprocessing_settingsdefaults, CTDQSupport
 from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the symbology class (use ctdq_AlgoSymbology.py)
 from .ctdq_AlgoRun import ctdqAlgoRun  # Import the missing base class

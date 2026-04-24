@@ -42,8 +42,8 @@ from qgis.core import (
     QgsTextBufferSettings,  # Import for text buffer
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from PyQt5.QtCore import QVariant, QCoreApplication
-from PyQt5.QtGui import QColor  # Import QColor for random colors
+from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtGui import QColor  # Import QColor for random colors
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
 from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the new symbology class
 from ..ctdq_support import ctdprocessing_command_info

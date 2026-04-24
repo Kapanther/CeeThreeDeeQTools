@@ -1,4 +1,4 @@
-"""
+﻿"""
 Common Functions for CTDQ Algorithms
 """
 from qgis.core import (
@@ -203,7 +203,7 @@ def select_group(name: str) -> bool:
 
     listIndexes = m.match(
         m.index(0, 0),
-        Qt.DisplayRole,
+        Qt.ItemDataRole.DisplayRole,
         name,
         1,
         Qt.MatchFixedString | Qt.MatchRecursive | Qt.MatchCaseSensitive | Qt.MatchWrap,

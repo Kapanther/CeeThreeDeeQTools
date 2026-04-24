@@ -35,7 +35,7 @@ from qgis.core import (
     QgsRasterLayer,  # Import QgsRasterLayer for raster support
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from PyQt5.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from ..ctdq_support import ctdprocessing_command_info
 
 

@@ -1,10 +1,10 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QVBoxLayout, QToolButton, QFrame, QTextBrowser, QProgressDialog
+﻿from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QVBoxLayout, QToolButton, QFrame, QTextBrowser, QProgressDialog
 import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsProject
 import traceback  # Import traceback for detailed error information
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDesktopServices
+from qgis.PyQt.QtCore import Qt, QUrl
+from qgis.PyQt.QtGui import QDesktopServices
 import os
 from urllib.parse import unquote  # Import for decoding URL-encoded characters
 from qgis.gui import QgsCollapsibleGroupBox  # Import QgsCollapsibleGroupBox
@@ -191,7 +191,7 @@ class ValidateProjectReportDialog(QDialog):
         """
         Enable or disable the first filter category dropdown and scrollable box based on the checkbox state.
         """
-        enabled = state == Qt.Checked
+        enabled = state == Qt.CheckState.Checked
         self.filter_category_combo1.setEnabled(enabled)
         self.filter_category_scroll1.setEnabled(enabled)
         self.log_message(f"First filter category {'enabled' if enabled else 'disabled'}.", debug=True)
@@ -200,7 +200,7 @@ class ValidateProjectReportDialog(QDialog):
         """
         Enable or disable the second filter category dropdown and scrollable box based on the checkbox state.
         """
-        enabled = state == Qt.Checked
+        enabled = state == Qt.CheckState.Checked
         self.filter_category_combo2.setEnabled(enabled)
         self.filter_category_scroll2.setEnabled(enabled)
         self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.", debug=True)
@@ -219,7 +219,7 @@ class ValidateProjectReportDialog(QDialog):
 
         progress_dialog = QProgressDialog("Restoring cached selections...", "Cancel", 0, len(tasks), self)
         progress_dialog.setWindowTitle("Loading")
-        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setMinimumDuration(0)
 
         for i, (description, task) in enumerate(tasks):

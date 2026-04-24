@@ -1,4 +1,4 @@
-"""Tree widget for displaying layers."""
+﻿"""Tree widget for displaying layers."""
 
 from qgis.PyQt.QtWidgets import QTreeWidget, QTreeWidgetItem
 from qgis.PyQt.QtCore import Qt, pyqtSignal
@@ -42,10 +42,10 @@ class LayerTreeWidget(QTreeWidget):
         
         # Set layer name and ID
         item.setText(0, layer.name())
-        item.setData(0, Qt.UserRole, layer.id())
+        item.setData(0, Qt.ItemDataRole.UserRole, layer.id())
         
         # Set checkbox for visibility
-        item.setCheckState(0, Qt.Checked if is_visible else Qt.Unchecked)
+        item.setCheckState(0, Qt.CheckState.Checked if is_visible else Qt.CheckState.Unchecked)
         
         # Set layer type and info
         item.setText(1, layer_info['type'])
@@ -74,15 +74,15 @@ class LayerTreeWidget(QTreeWidget):
         if column != 0:
             return
         
-        layer_id = item.data(0, Qt.UserRole)
-        is_checked = item.checkState(0) == Qt.Checked
+        layer_id = item.data(0, Qt.ItemDataRole.UserRole)
+        is_checked = item.checkState(0) == Qt.CheckState.Checked
         self.layerVisibilityChanged.emit(layer_id, is_checked)
     
     def _on_selection_changed(self):
         """Handle selection change."""
         selected_items = self.selectedItems()
         if selected_items:
-            layer_id = selected_items[0].data(0, Qt.UserRole)
+            layer_id = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
             self.layerSelected.emit(layer_id)
     
     def update_all_visibility(self, visible):
@@ -95,7 +95,7 @@ class LayerTreeWidget(QTreeWidget):
         self.itemChanged.disconnect(self._on_item_changed)
         
         try:
-            check_state = Qt.Checked if visible else Qt.Unchecked
+            check_state = Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked
             for i in range(self.topLevelItemCount()):
                 item = self.topLevelItem(i)
                 item.setCheckState(0, check_state)
@@ -122,5 +122,5 @@ class LayerTreeWidget(QTreeWidget):
         layer_ids = []
         for i in range(self.topLevelItemCount()):
             item = self.topLevelItem(i)
-            layer_ids.append(item.data(0, Qt.UserRole))
+            layer_ids.append(item.data(0, Qt.ItemDataRole.UserRole))
         return layer_ids

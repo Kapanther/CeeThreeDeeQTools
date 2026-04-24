@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 
 """
 /***************************************************************************
@@ -36,9 +36,9 @@ import inspect
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
-from PyQt5.QtWidgets import QAction, QMenu
-from PyQt5.QtGui import QIcon, QDesktopServices
-from PyQt5.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale, Qt
+from qgis.PyQt.QtWidgets import QAction, QMenu
+from qgis.PyQt.QtGui import QIcon, QDesktopServices
+from qgis.PyQt.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale, Qt
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
@@ -170,7 +170,7 @@ class CTDQPlugin(object):
     def openValidationDialog(self):
         from .Tools.ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
         dialog = ValidateProjectReportDialog()
-        dialog.exec_()
+        dialog.exec()
 
     def openMirrorProjectDialog(self):
         """Open the Mirror Project dialog."""
@@ -214,7 +214,7 @@ class CTDQPlugin(object):
                 100,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setWindowTitle("Mirror Project")
             progress.show()
 
@@ -305,7 +305,7 @@ class CTDQPlugin(object):
                 100,
                 self.iface.mainWindow()
             )
-            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setWindowTitle("Package Layer Updater")
             progress.show()
             

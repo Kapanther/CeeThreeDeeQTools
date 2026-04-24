@@ -1,4 +1,4 @@
-"""
+﻿"""
 Service for handling layer tree reordering operations including drag-and-drop.
 """
 
@@ -43,8 +43,8 @@ class TreeReorderingService:
         widget_structure = []
         for i in range(widget_parent.childCount()):
             child = widget_parent.child(i)
-            item_type = child.data(0, Qt.UserRole + 1)
-            item_id = child.data(0, Qt.UserRole)
+            item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
+            item_id = child.data(0, Qt.ItemDataRole.UserRole)
             
             # Only process actual QGIS tree nodes (layers and groups), skip symbology items
             if item_type == "layer":

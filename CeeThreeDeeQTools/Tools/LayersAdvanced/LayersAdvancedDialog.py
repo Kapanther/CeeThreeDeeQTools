@@ -1,4 +1,4 @@
-"""
+﻿"""
 ***************************************************************************
 *                                                                         *
 *   This program is free software; you can redistribute it and/or modify  *
@@ -502,9 +502,9 @@ class LayersAdvancedDialog(QDockWidget):
             item = iterator.value()
             items_checked += 1
             # Check if this item represents a layer with matching ID
-            item_type = item.data(0, Qt.UserRole + 1)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
             if item_type == "layer":
-                item_layer_id = item.data(0, Qt.UserRole)
+                item_layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 self.log_debug(f"      Found layer item: {item.text(0)} (id={item_layer_id})")
                 if item_layer_id == layer_id:
                     self.log_debug(f"      ✓ Match found!")
@@ -579,14 +579,14 @@ class LayersAdvancedDialog(QDockWidget):
         self._updating_visibility = True
         
         try:
-            item_type = item.data(0, Qt.UserRole + 1)
-            is_checked = item.checkState(0) == Qt.Checked
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            is_checked = item.checkState(0) == Qt.CheckState.Checked
             
             self.log_debug(f"on_item_visibility_changed: type={item_type}, checked={is_checked}, name={item.text(0)}")
             
             if item_type == "layer":
                 # Handle layer visibility
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 VisibilityService.set_layer_visibility(layer_id, is_checked)
                 self.layerVisibilityChanged.emit(layer_id, is_checked)
                 self.log_debug(f"  Layer visibility set")
@@ -602,7 +602,7 @@ class LayersAdvancedDialog(QDockWidget):
                 
                 try:
                     # Get the actual QGIS group node safely by name
-                    group_name = item.data(0, Qt.UserRole)
+                    group_name = item.data(0, Qt.ItemDataRole.UserRole)
                     root = QgsProject.instance().layerTreeRoot()
                     group_node = root.findGroup(group_name)
                     if group_node:
@@ -632,8 +632,8 @@ class LayersAdvancedDialog(QDockWidget):
     
     def set_category_visibility(self, item, visible):
         """Toggle visibility of a categorized symbol category."""
-        layer_id = item.data(0, Qt.UserRole)
-        category_index = item.data(0, Qt.UserRole + 2)
+        layer_id = item.data(0, Qt.ItemDataRole.UserRole)
+        category_index = item.data(0, Qt.ItemDataRole.UserRole + 2)
         
         # Temporarily disconnect our handler to avoid catching our own signal
         project = QgsProject.instance()
@@ -660,8 +660,8 @@ class LayersAdvancedDialog(QDockWidget):
     
     def set_range_visibility(self, item, visible):
         """Toggle visibility of a graduated symbol range."""
-        layer_id = item.data(0, Qt.UserRole)
-        range_index = item.data(0, Qt.UserRole + 2)
+        layer_id = item.data(0, Qt.ItemDataRole.UserRole)
+        range_index = item.data(0, Qt.ItemDataRole.UserRole + 2)
         
         # Temporarily disconnect our handlers to avoid catching our own signals
         project = QgsProject.instance()
@@ -696,8 +696,8 @@ class LayersAdvancedDialog(QDockWidget):
     
     def set_rule_visibility(self, item, visible):
         """Toggle visibility of a rule-based renderer rule."""
-        layer_id = item.data(0, Qt.UserRole)
-        rule_key = item.data(0, Qt.UserRole + 2)
+        layer_id = item.data(0, Qt.ItemDataRole.UserRole)
+        rule_key = item.data(0, Qt.ItemDataRole.UserRole + 2)
         
         # Temporarily disconnect our handler to avoid catching our own signal
         project = QgsProject.instance()
@@ -737,10 +737,10 @@ class LayersAdvancedDialog(QDockWidget):
             return
         
         item = selected_items[0]
-        item_type = item.data(0, Qt.UserRole + 1)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
         
         if item_type == "layer":
-            layer_id = item.data(0, Qt.UserRole)
+            layer_id = item.data(0, Qt.ItemDataRole.UserRole)
             self.layerSelected.emit(layer_id)
             
             # Select layer in QGIS using service
@@ -755,7 +755,7 @@ class LayersAdvancedDialog(QDockWidget):
         
         elif item_type == "group":
             # Select group in QGIS using service
-            group_name = item.data(0, Qt.UserRole)
+            group_name = item.data(0, Qt.ItemDataRole.UserRole)
             self._updating_selection = True
             try:
                 SelectionService.select_group_in_qgis(group_name, self.iface, self.log_debug)
@@ -765,8 +765,8 @@ class LayersAdvancedDialog(QDockWidget):
         elif item_type in ["category", "range", "rule"]:
             # For symbology items, select the parent layer
             parent = item.parent()
-            if parent and parent.data(0, Qt.UserRole + 1) == "layer":
-                layer_id = parent.data(0, Qt.UserRole)
+            if parent and parent.data(0, Qt.ItemDataRole.UserRole + 1) == "layer":
+                layer_id = parent.data(0, Qt.ItemDataRole.UserRole)
                 self.layerSelected.emit(layer_id)
                 
                 # Select parent layer in QGIS using service
@@ -825,8 +825,8 @@ class LayersAdvancedDialog(QDockWidget):
             """Recursively search for layer item."""
             for i in range(parent_item.childCount()):
                 child = parent_item.child(i)
-                child_type = child.data(0, Qt.UserRole + 1)
-                child_id = child.data(0, Qt.UserRole)
+                child_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
+                child_id = child.data(0, Qt.ItemDataRole.UserRole)
                 
                 if child_type == "layer" and child_id == layer_id:
                     return child
@@ -841,8 +841,8 @@ class LayersAdvancedDialog(QDockWidget):
         # Search at top level
         for i in range(self.layer_tree.topLevelItemCount()):
             top_item = self.layer_tree.topLevelItem(i)
-            top_type = top_item.data(0, Qt.UserRole + 1)
-            top_id = top_item.data(0, Qt.UserRole)
+            top_type = top_item.data(0, Qt.ItemDataRole.UserRole + 1)
+            top_id = top_item.data(0, Qt.ItemDataRole.UserRole)
             
             if top_type == "layer" and top_id == layer_id:
                 self.layer_tree.setCurrentItem(top_item)
@@ -878,11 +878,11 @@ class LayersAdvancedDialog(QDockWidget):
                 """Recursively show all layers and groups."""
                 for i in range(parent_item.childCount()):
                     item = parent_item.child(i)
-                    item_type = item.data(0, Qt.UserRole + 1)
-                    item_id = item.data(0, Qt.UserRole)
+                    item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    item_id = item.data(0, Qt.ItemDataRole.UserRole)
                     
                     # Set checkbox
-                    item.setCheckState(0, Qt.Checked)
+                    item.setCheckState(0, Qt.CheckState.Checked)
                     
                     # Update visibility in QGIS
                     if item_type == "layer":
@@ -924,11 +924,11 @@ class LayersAdvancedDialog(QDockWidget):
                 """Recursively hide all layers and groups."""
                 for i in range(parent_item.childCount()):
                     item = parent_item.child(i)
-                    item_type = item.data(0, Qt.UserRole + 1)
-                    item_id = item.data(0, Qt.UserRole)
+                    item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    item_id = item.data(0, Qt.ItemDataRole.UserRole)
                     
                     # Set checkbox
-                    item.setCheckState(0, Qt.Unchecked)
+                    item.setCheckState(0, Qt.CheckState.Unchecked)
                     
                     # Update visibility in QGIS
                     if item_type == "layer":
@@ -962,11 +962,11 @@ class LayersAdvancedDialog(QDockWidget):
         
         try:
             for item in selected_items:
-                item_type = item.data(0, Qt.UserRole + 1)
-                item_id = item.data(0, Qt.UserRole)
+                item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                item_id = item.data(0, Qt.ItemDataRole.UserRole)
                 
                 # Set checkbox state
-                item.setCheckState(0, Qt.Checked if visible else Qt.Unchecked)
+                item.setCheckState(0, Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)
                 
                 # Update actual layer/group visibility
                 if item_type == "layer":
@@ -998,9 +998,9 @@ class LayersAdvancedDialog(QDockWidget):
             project = QgsProject.instance()
             
             for sel_item in selected_items:
-                sel_item_type = sel_item.data(0, Qt.UserRole + 1)
+                sel_item_type = sel_item.data(0, Qt.ItemDataRole.UserRole + 1)
                 if sel_item_type == "layer":
-                    layer_id = sel_item.data(0, Qt.UserRole)
+                    layer_id = sel_item.data(0, Qt.ItemDataRole.UserRole)
                     layer = project.mapLayer(layer_id)
                     if layer:
                         layers.append(layer)
@@ -1013,11 +1013,11 @@ class LayersAdvancedDialog(QDockWidget):
                 self.refresh_layers()
                 return
         
-        item_type = item.data(0, Qt.UserRole + 1)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
         
         if item_type == "layer":
             # Layer context menu
-            layer_id = item.data(0, Qt.UserRole)
+            layer_id = item.data(0, Qt.ItemDataRole.UserRole)
             project = QgsProject.instance()
             layer = project.mapLayer(layer_id)
             
@@ -1043,7 +1043,7 @@ class LayersAdvancedDialog(QDockWidget):
             menu.addSeparator()
             
             # Remove group
-            group_name = item.data(0, Qt.UserRole)
+            group_name = item.data(0, Qt.ItemDataRole.UserRole)
             remove_action = menu.addAction(QIcon(":/images/themes/default/mActionRemoveLayer.svg"), "Remove Group")
             remove_action.triggered.connect(lambda: self.remove_group(group_name))
             
@@ -1089,7 +1089,7 @@ class LayersAdvancedDialog(QDockWidget):
                 selected_items = self.layer_tree.selectedItems()
                 if selected_items:
                     item = selected_items[0]
-                    item_type = item.data(0, Qt.UserRole + 1)
+                    item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
                     # Edit both layers and groups
                     if item_type in ["layer", "group"]:
                         self.start_rename_item(item)
@@ -1100,7 +1100,7 @@ class LayersAdvancedDialog(QDockWidget):
                 selected_items = self.layer_tree.selectedItems()
                 if selected_items:
                     # Determine new state: if any selected item is unchecked, check all; otherwise uncheck all
-                    any_unchecked = any(item.checkState(0) == Qt.Unchecked for item in selected_items)
+                    any_unchecked = any(item.checkState(0) == Qt.CheckState.Unchecked for item in selected_items)
                     self.toggle_selected_visibility(any_unchecked)
                     return True
         
@@ -1125,13 +1125,13 @@ class LayersAdvancedDialog(QDockWidget):
         
         # Check if this is a name change (column 0) or visibility change
         if column == 0:
-            item_type = item.data(0, Qt.UserRole + 1)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
             new_name = item.text(0)
-            original_name = item.data(0, Qt.UserRole + 2)
+            original_name = item.data(0, Qt.ItemDataRole.UserRole + 2)
             
             if item_type == "layer":
                 # Get the layer
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 project = QgsProject.instance()
                 layer = project.mapLayer(layer_id)
                 
@@ -1140,14 +1140,14 @@ class LayersAdvancedDialog(QDockWidget):
             
             elif item_type == "group":
                 # Get the group from layer tree by name (avoid dangling pointer)
-                old_group_name = item.data(0, Qt.UserRole)
+                old_group_name = item.data(0, Qt.ItemDataRole.UserRole)
                 root = QgsProject.instance().layerTreeRoot()
                 group_node = root.findGroup(old_group_name)
                 
                 if group_node and new_name and new_name != original_name:
                     group_node.setName(new_name)
                     # Update the stored name in the item
-                    item.setData(0, Qt.UserRole, new_name)
+                    item.setData(0, Qt.ItemDataRole.UserRole, new_name)
             
             # Remove editable flag
             flags = item.flags()
@@ -1170,8 +1170,8 @@ class LayersAdvancedDialog(QDockWidget):
         items_to_reselect = []
         
         for item in selected_items:
-            item_type = item.data(0, Qt.UserRole + 1)
-            item_id = item.data(0, Qt.UserRole)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            item_id = item.data(0, Qt.ItemDataRole.UserRole)
             
             success = False
             if item_type == "layer":
@@ -1199,8 +1199,8 @@ class LayersAdvancedDialog(QDockWidget):
         items_to_reselect = []
         
         for item in reversed(selected_items):
-            item_type = item.data(0, Qt.UserRole + 1)
-            item_id = item.data(0, Qt.UserRole)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            item_id = item.data(0, Qt.ItemDataRole.UserRole)
             
             success = False
             if item_type == "layer":
@@ -1232,8 +1232,8 @@ class LayersAdvancedDialog(QDockWidget):
             """Recursively search for the item."""
             for i in range(parent_item.childCount()):
                 child = parent_item.child(i)
-                child_type = child.data(0, Qt.UserRole + 1)
-                child_id = child.data(0, Qt.UserRole)
+                child_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
+                child_id = child.data(0, Qt.ItemDataRole.UserRole)
                 
                 # Check if this is the item we're looking for
                 if child_type == item_type and child_id == item_id:
@@ -1350,7 +1350,7 @@ class LayersAdvancedDialog(QDockWidget):
             """Recursively find the first layer item."""
             for i in range(item.childCount()):
                 child = item.child(i)
-                item_type = child.data(0, Qt.UserRole + 1)
+                item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
                 
                 if item_type == "layer":
                     return child
@@ -1393,7 +1393,7 @@ class LayersAdvancedDialog(QDockWidget):
             """Recursively expand only layer items."""
             for i in range(item.childCount()):
                 child = item.child(i)
-                item_type = child.data(0, Qt.UserRole + 1)
+                item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
                 
                 if item_type == "layer":
                     # Expand the layer to show symbology
@@ -1413,7 +1413,7 @@ class LayersAdvancedDialog(QDockWidget):
             """Recursively collapse only layer items."""
             for i in range(item.childCount()):
                 child = item.child(i)
-                item_type = child.data(0, Qt.UserRole + 1)
+                item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
                 
                 if item_type == "layer":
                     # Collapse the layer to hide symbology

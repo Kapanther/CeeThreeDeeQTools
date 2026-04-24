@@ -1,4 +1,4 @@
-"""
+﻿"""
 Service for handling layer symbology visibility updates.
 """
 
@@ -146,15 +146,15 @@ class SymbologyService:
         root = tree_widget.invisibleRootItem()
         for i in range(root.childCount()):
             item = root.child(i)
-            if item.data(0, Qt.UserRole + 1) == "layer":
-                if item.data(0, Qt.UserRole) == layer_id:
+            if item.data(0, Qt.ItemDataRole.UserRole + 1) == "layer":
+                if item.data(0, Qt.ItemDataRole.UserRole) == layer_id:
                     return item
             # Check group children
-            elif item.data(0, Qt.UserRole + 1) == "group":
+            elif item.data(0, Qt.ItemDataRole.UserRole + 1) == "group":
                 for j in range(item.childCount()):
                     child = item.child(j)
-                    if child.data(0, Qt.UserRole + 1) == "layer":
-                        if child.data(0, Qt.UserRole) == layer_id:
+                    if child.data(0, Qt.ItemDataRole.UserRole + 1) == "layer":
+                        if child.data(0, Qt.ItemDataRole.UserRole) == layer_id:
                             return child
         return None
     
@@ -166,11 +166,11 @@ class SymbologyService:
         categories = renderer.categories()
         for i in range(layer_item.childCount()):
             child = layer_item.child(i)
-            if child.data(0, Qt.UserRole + 1) == "category":
-                category_index = child.data(0, Qt.UserRole + 2)
+            if child.data(0, Qt.ItemDataRole.UserRole + 1) == "category":
+                category_index = child.data(0, Qt.ItemDataRole.UserRole + 2)
                 if 0 <= category_index < len(categories):
                     category = categories[category_index]
-                    new_state = Qt.Checked if category.renderState() else Qt.Unchecked
+                    new_state = Qt.CheckState.Checked if category.renderState() else Qt.CheckState.Unchecked
                     if child.checkState(0) != new_state:
                         child.setCheckState(0, new_state)
     
@@ -182,10 +182,10 @@ class SymbologyService:
         ranges = renderer.ranges()
         for i in range(layer_item.childCount()):
             child = layer_item.child(i)
-            if child.data(0, Qt.UserRole + 1) == "range":
-                range_index = child.data(0, Qt.UserRole + 2)
+            if child.data(0, Qt.ItemDataRole.UserRole + 1) == "range":
+                range_index = child.data(0, Qt.ItemDataRole.UserRole + 2)
                 if 0 <= range_index < len(ranges):
                     range_item = ranges[range_index]
-                    new_state = Qt.Checked if range_item.renderState() else Qt.Unchecked
+                    new_state = Qt.CheckState.Checked if range_item.renderState() else Qt.CheckState.Unchecked
                     if child.checkState(0) != new_state:
                         child.setCheckState(0, new_state)

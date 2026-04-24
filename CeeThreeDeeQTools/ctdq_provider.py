@@ -34,8 +34,8 @@ from CeeThreeDeeQTools.Processing.ctdq_CatchmentsAndStreams import CatchmentsAnd
 from qgis.core import QgsProcessingProvider, QgsProcessingAlgorithm, Qgis
 from qgis.gui import QgisInterface
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QFileInfo
+from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import QFileInfo
 from .ctdq_support import ctdprocessing_settingsdefaults
 from CeeThreeDeeQTools.Processing import ctdq_AlgoBase,ctdq_AlgoRun, ExportDataSourcesMap, ExportProjectLayerStyles, FindRasterPonds, CalculateStageStoragePond, CatchmentsAndStreams, PointsAlongPaths
 

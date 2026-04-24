@@ -28,7 +28,7 @@ from qgis.core import (
     QgsGeometry,
     QgsPointXY,
 )
-from PyQt5.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant
 from ..ctdq_support import ctdprocessing_command_info
 from .ctdq_AlgoRun import ctdqAlgoRun
 

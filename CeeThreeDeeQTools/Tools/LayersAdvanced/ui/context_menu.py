@@ -249,7 +249,7 @@ class LayerContextMenu:
             crs_dialog.setCrs(current_crs)
             crs_dialog.setWindowTitle("Select Layer CRS")
             
-            if crs_dialog.exec_():
+            if crs_dialog.exec():
                 new_crs = crs_dialog.crs()
                 if new_crs.isValid() and new_crs != current_crs:
                     layer.setCrs(new_crs)
@@ -320,7 +320,7 @@ class LayerContextMenu:
                 dialog.expandPath(dir_path)
             
             # Show the dialog
-            if dialog.exec_():
+            if dialog.exec():
                 uri = dialog.uri()
                 log(f"DEBUG: Dialog accepted")
                 log(f"DEBUG: Selected URI: {uri.uri if uri else 'None'}")

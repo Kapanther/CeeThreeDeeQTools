@@ -1,4 +1,4 @@
-"""
+﻿"""
 ***************************************************************************
 *                                                                         *
 *   This program is free software; you can redistribute it and/or modify  *
@@ -57,7 +57,7 @@ class MirrorProjectDialog(QDialog):
         
         # Title label
         title_label = QLabel("<h2>Mirror Project Tool</h2>")
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
         # Master project info
@@ -352,7 +352,7 @@ class MirrorProjectDialog(QDialog):
                 self.layer_list.addItem(item_text)
                 # Store the layer ID as item data
                 item = self.layer_list.item(self.layer_list.count() - 1)
-                item.setData(Qt.UserRole, layer.id())
+                item.setData(Qt.ItemDataRole.UserRole, layer.id())
     
     def get_layer_type_string(self, layer):
         """Get a human-readable string for the layer type."""
@@ -372,7 +372,7 @@ class MirrorProjectDialog(QDialog):
     def on_layer_selection_changed(self):
         """Handle layer selection changes."""
         selected_items = self.layer_list.selectedItems()
-        self.selected_layers = [item.data(Qt.UserRole) for item in selected_items]
+        self.selected_layers = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
         self.selected_count_label.setText(f"Selected: {len(self.selected_layers)} layers")
     
     def select_all_layers(self):

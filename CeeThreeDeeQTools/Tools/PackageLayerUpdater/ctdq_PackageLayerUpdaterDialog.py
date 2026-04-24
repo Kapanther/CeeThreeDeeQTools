@@ -1,4 +1,4 @@
-"""
+﻿"""
 ***************************************************************************
 *                                                                         *
 *   This program is free software; you can redistribute it and/or modify  *
@@ -54,7 +54,7 @@ class PackageLayerUpdaterDialog(QDialog):
         
         # Title label
         title_label = QLabel("<h2>Package Layer Updater</h2>")
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
         # Instructions
@@ -244,23 +244,23 @@ class PackageLayerUpdaterDialog(QDialog):
                     item_text = f"{layer.name()} (Vector - {layer.geometryType().name if hasattr(layer, 'geometryType') else 'Unknown'})"
                     self.layer_list.addItem(item_text)
                     item = self.layer_list.item(self.layer_list.count() - 1)
-                    item.setData(Qt.UserRole, layer.id())
+                    item.setData(Qt.ItemDataRole.UserRole, layer.id())
                 elif layer.type() == QgsMapLayer.RasterLayer:
                     item_text = f"{layer.name()} (Raster)"
                     self.layer_list.addItem(item_text)
                     item = self.layer_list.item(self.layer_list.count() - 1)
-                    item.setData(Qt.UserRole, layer.id())
+                    item.setData(Qt.ItemDataRole.UserRole, layer.id())
 
     def on_layer_selection_changed(self):
         """Handle layer selection changes."""
         selected_items = self.layer_list.selectedItems()
-        self.selected_layers = [item.data(Qt.UserRole) for item in selected_items]
+        self.selected_layers = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
         self.selected_count_label.setText(f"Selected: {len(self.selected_layers)} layers")
     
     def on_fix_fids_changed(self, state):
         """Handle Fix FIDs checkbox state change."""
         # Enable/disable Preserve FID checkbox based on Fix FIDs state
-        is_checked = (state == Qt.Checked)
+        is_checked = (state == Qt.CheckState.Checked)
         self.preserve_fid_checkbox.setEnabled(is_checked)
         
         # If Fix FIDs is unchecked, also uncheck Preserve FID

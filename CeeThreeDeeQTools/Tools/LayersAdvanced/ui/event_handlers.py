@@ -1,4 +1,4 @@
-"""
+﻿"""
 Event handlers for LayersAdvanced dialog interactions.
 """
 
@@ -37,12 +37,12 @@ class EventHandlers:
             dialog: The LayersAdvancedDialog instance
             item: The tree item to rename
         """
-        item_type = item.data(0, Qt.UserRole + 1)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
         
         # Only allow renaming layers and groups, not symbology items
         if item_type in ("layer", "group"):
             # Store original name and enable editing
-            item.setData(0, Qt.UserRole + 2, item.text(0))  # Store original name
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, item.text(0))  # Store original name
             
             # Disconnect the itemChanged signal temporarily
             try:
@@ -84,9 +84,9 @@ class EventHandlers:
         
         # Get the new name and item info
         new_name = item.text(0)
-        original_name = item.data(0, Qt.UserRole + 2)
-        item_type = item.data(0, Qt.UserRole + 1)
-        item_id = item.data(0, Qt.UserRole)
+        original_name = item.data(0, Qt.ItemDataRole.UserRole + 2)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        item_id = item.data(0, Qt.ItemDataRole.UserRole)
         
         # If name didn't change, nothing to do
         if new_name == original_name or not new_name.strip():
@@ -106,7 +106,7 @@ class EventHandlers:
             if group_node:
                 group_node.setName(new_name)
                 # Update the item_id since group names are used as IDs
-                item.setData(0, Qt.UserRole, new_name)
+                item.setData(0, Qt.ItemDataRole.UserRole, new_name)
     
     @staticmethod
     def handle_show_all(dialog):
@@ -118,7 +118,7 @@ class EventHandlers:
         if selected_items:
             # Show only selected items
             for item in selected_items:
-                item_type = item.data(0, Qt.UserRole + 1)
+                item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
                 if item_type in ("layer", "group"):
                     dialog.toggle_selected_visibility(True)
         else:
@@ -126,9 +126,9 @@ class EventHandlers:
             root_item = dialog.layer_tree.invisibleRootItem()
             for i in range(root_item.childCount()):
                 child = root_item.child(i)
-                item_type = child.data(0, Qt.UserRole + 1)
+                item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
                 if item_type == "layer" or item_type == "group":
-                    child.setCheckState(0, Qt.Checked)
+                    child.setCheckState(0, Qt.CheckState.Checked)
     
     @staticmethod
     def handle_hide_all(dialog):
@@ -140,7 +140,7 @@ class EventHandlers:
         if selected_items:
             # Hide only selected items
             for item in selected_items:
-                item_type = item.data(0, Qt.UserRole + 1)
+                item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
                 if item_type in ("layer", "group"):
                     dialog.toggle_selected_visibility(False)
         else:
@@ -148,6 +148,6 @@ class EventHandlers:
             root_item = dialog.layer_tree.invisibleRootItem()
             for i in range(root_item.childCount()):
                 child = root_item.child(i)
-                item_type = child.data(0, Qt.UserRole + 1)
+                item_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
                 if item_type == "layer" or item_type == "group":
-                    child.setCheckState(0, Qt.Unchecked)
+                    child.setCheckState(0, Qt.CheckState.Unchecked)

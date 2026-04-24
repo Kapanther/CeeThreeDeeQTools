@@ -1,4 +1,4 @@
-"""
+﻿"""
 ***************************************************************************
 *                                                                         *
 *   This program is free software; you can redistribute it and/or modify  *
@@ -160,11 +160,11 @@ class LayerTreeBuilder:
         # Set group name
         group_name = group_node.name()
         item.setText(0, group_name)
-        item.setData(0, Qt.UserRole, group_name)  # Store the group name to avoid dangling pointers
-        item.setData(0, Qt.UserRole + 1, "group")  # Mark as group
+        item.setData(0, Qt.ItemDataRole.UserRole, group_name)  # Store the group name to avoid dangling pointers
+        item.setData(0, Qt.ItemDataRole.UserRole + 1, "group")  # Mark as group
         
         # Set checkbox for visibility
-        item.setCheckState(0, Qt.Checked if group_node.isVisible() else Qt.Unchecked)
+        item.setCheckState(0, Qt.CheckState.Checked if group_node.isVisible() else Qt.CheckState.Unchecked)
         
         # Set folder icon
         item.setIcon(0, QIcon(":/images/themes/default/mActionFolder.svg"))
@@ -205,14 +205,14 @@ class LayerTreeBuilder:
         
         # Set layer name
         item.setText(0, layer.name())
-        item.setData(0, Qt.UserRole, layer.id())
-        item.setData(0, Qt.UserRole + 1, "layer")  # Mark as layer
+        item.setData(0, Qt.ItemDataRole.UserRole, layer.id())
+        item.setData(0, Qt.ItemDataRole.UserRole + 1, "layer")  # Mark as layer
         
         # Set checkbox for visibility
         if layer_node:
-            item.setCheckState(0, Qt.Checked if layer_node.isVisible() else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if layer_node.isVisible() else Qt.CheckState.Unchecked)
         else:
-            item.setCheckState(0, Qt.Checked if VisibilityService.is_layer_visible(layer) else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if VisibilityService.is_layer_visible(layer) else Qt.CheckState.Unchecked)
         
         # Set layer type
         layer_type = LayerService.get_layer_type_string(layer)
@@ -360,12 +360,12 @@ class LayerTreeBuilder:
                     item.setIcon(0, icon)
             
             # Make checkbox for category visibility
-            item.setCheckState(0, Qt.Checked if category.renderState() else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if category.renderState() else Qt.CheckState.Unchecked)
             
             # Store category info
-            item.setData(0, Qt.UserRole, vector_layer.id())
-            item.setData(0, Qt.UserRole + 1, "category")
-            item.setData(0, Qt.UserRole + 2, index)  # Store category index
+            item.setData(0, Qt.ItemDataRole.UserRole, vector_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "category")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, index)  # Store category index
             
             # Make text slightly smaller/lighter for categories
             font = item.font(0)
@@ -393,12 +393,12 @@ class LayerTreeBuilder:
                     item.setIcon(0, icon)
             
             # Make checkbox for range visibility
-            item.setCheckState(0, Qt.Checked if range_item.renderState() else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if range_item.renderState() else Qt.CheckState.Unchecked)
             
             # Store range info
-            item.setData(0, Qt.UserRole, vector_layer.id())
-            item.setData(0, Qt.UserRole + 1, "range")
-            item.setData(0, Qt.UserRole + 2, index)  # Store range index
+            item.setData(0, Qt.ItemDataRole.UserRole, vector_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "range")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, index)  # Store range index
             
             # Make text slightly smaller/lighter
             font = item.font(0)
@@ -426,12 +426,12 @@ class LayerTreeBuilder:
                     item.setIcon(0, icon)
             
             # Make checkbox for rule visibility
-            item.setCheckState(0, Qt.Checked if rule.active() else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if rule.active() else Qt.CheckState.Unchecked)
             
             # Store rule info
-            item.setData(0, Qt.UserRole, vector_layer.id())
-            item.setData(0, Qt.UserRole + 1, "rule")
-            item.setData(0, Qt.UserRole + 2, rule.ruleKey())
+            item.setData(0, Qt.ItemDataRole.UserRole, vector_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "rule")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, rule.ruleKey())
             
             # Make text slightly smaller/lighter
             font = item.font(0)
@@ -547,9 +547,9 @@ class LayerTreeBuilder:
             item.setIcon(0, QIcon(pixmap))
             
             # Store class info
-            item.setData(0, Qt.UserRole, raster_layer.id())
-            item.setData(0, Qt.UserRole + 1, "raster_palette")
-            item.setData(0, Qt.UserRole + 2, index)
+            item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_palette")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, index)
             
             # Make text slightly smaller
             font = item.font(0)
@@ -599,8 +599,8 @@ class LayerTreeBuilder:
                 font.setPointSize(font.pointSize() - 1)
                 item.setFont(0, font)
                 
-                item.setData(0, Qt.UserRole, raster_layer.id())
-                item.setData(0, Qt.UserRole + 1, "raster_contour")
+                item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_contour")
             
             # Add index contour item if different
             if index_interval > 0 and index_interval != contour_interval:
@@ -626,8 +626,8 @@ class LayerTreeBuilder:
                 font.setPointSize(font.pointSize() - 1)
                 item.setFont(0, font)
                 
-                item.setData(0, Qt.UserRole, raster_layer.id())
-                item.setData(0, Qt.UserRole + 1, "raster_contour_index")
+                item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_contour_index")
             
             if dialog:
                 dialog.log_debug(f"  Added contour items")
@@ -673,9 +673,9 @@ class LayerTreeBuilder:
                 item.setIcon(0, QIcon(pixmap))
                 
                 # Store item info
-                item.setData(0, Qt.UserRole, raster_layer.id())
-                item.setData(0, Qt.UserRole + 1, "raster_discrete")
-                item.setData(0, Qt.UserRole + 2, index)
+                item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_discrete")
+                item.setData(0, Qt.ItemDataRole.UserRole + 2, index)
                 
                 # Make text slightly smaller to match other symbology items
                 font = item.font(0)
@@ -805,8 +805,8 @@ class LayerTreeBuilder:
                     dialog.log_debug("Set item widget")
             
             # Store info
-            item.setData(0, Qt.UserRole, raster_layer.id())
-            item.setData(0, Qt.UserRole + 1, "raster_pseudocolor")
+            item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_pseudocolor")
             
         except Exception as e:
             if dialog:
@@ -913,8 +913,8 @@ class LayerTreeBuilder:
                     dialog.log_debug("Set item widget")
             
             # Store info
-            item.setData(0, Qt.UserRole, raster_layer.id())
-            item.setData(0, Qt.UserRole + 1, "raster_gray")
+            item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_gray")
             
         except Exception as e:
             print(f"DEBUG ERROR in add_raster_gray_gradient_item: {e}")
@@ -946,8 +946,8 @@ class LayerTreeBuilder:
             item.setIcon(0, QIcon(pixmap))
             
             # Store info
-            item.setData(0, Qt.UserRole, raster_layer.id())
-            item.setData(0, Qt.UserRole + 1, "raster_rgb")
+            item.setData(0, Qt.ItemDataRole.UserRole, raster_layer.id())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "raster_rgb")
             
             # Make text slightly smaller
             font = item.font(0)
