@@ -2,13 +2,6 @@ import os
 import numpy as np
 import heapq
 from osgeo import gdal
-from qgis.core import (    
-    QgsProcessing,
-    QgsRasterFileWriter,
-    QgsRasterBlock,
-    Qgis
-
-)
 
 class CtdqRasterFunctions:
     @staticmethod
