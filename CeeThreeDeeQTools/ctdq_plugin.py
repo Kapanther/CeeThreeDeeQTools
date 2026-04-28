@@ -358,7 +358,7 @@ class CTDQPlugin(object):
         if self.layersAdvancedDock is None:
             from .Tools.LayersAdvanced.LayersAdvancedDialog import LayersAdvancedDialog
             self.layersAdvancedDock = LayersAdvancedDialog(self.iface, self.iface.mainWindow())
-            self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.layersAdvancedDock)
+            self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.layersAdvancedDock)
             
             # Connect visibility changed to update action state
             def update_action_state(visible):

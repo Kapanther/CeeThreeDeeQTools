@@ -22,7 +22,7 @@ class LayerTreeWidget(QTreeWidget):
         self.setHeaderLabels(["Layer Name", "Type", "Features/Size"])
         self.setColumnWidth(0, 200)
         self.setColumnWidth(1, 80)
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.itemChanged.connect(self._on_item_changed)
         self.itemSelectionChanged.connect(self._on_selection_changed)
     

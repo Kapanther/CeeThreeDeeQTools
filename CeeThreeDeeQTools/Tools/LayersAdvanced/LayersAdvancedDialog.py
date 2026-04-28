@@ -14,6 +14,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QAbstractItemView,
     QTreeWidget,
     QTreeWidgetItem,
     QTreeWidgetItemIterator,
@@ -90,7 +91,7 @@ class LayersAdvancedDialog(QDockWidget):
         self.setObjectName("CeeThreeDeeQToolsLayersAdvanced")
         
         # Allow docking on left or right side
-        self.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         
         # Flag to prevent refresh during visibility updates
         self._updating_visibility = False
@@ -138,7 +139,7 @@ class LayersAdvancedDialog(QDockWidget):
         default_size = toolbar.iconSize()
         toolbar.setIconSize(default_size * 0.8)
         # Only show icons, not text
-        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         
         # Expand All Groups action
         expand_action = QAction(QIcon(":/images/themes/default/mActionExpandTree.svg"), "Expand All Groups", self)
@@ -190,25 +191,25 @@ class LayersAdvancedDialog(QDockWidget):
         self.layer_tree.setColumnWidth(4, 80)
         self.layer_tree.setColumnWidth(5, 80)
         self.layer_tree.setColumnWidth(6, 150)
-        self.layer_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.layer_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.layer_tree.customContextMenuRequested.connect(self.show_context_menu)
         self.layer_tree.itemChanged.connect(self.on_item_visibility_changed)
         self.layer_tree.itemSelectionChanged.connect(self.on_item_selected)
         
         # Enable multi-selection with Ctrl and Shift
-        self.layer_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self.layer_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         
         # Enable drag and drop for reordering
         self.layer_tree.setDragEnabled(True)
         self.layer_tree.setAcceptDrops(True)
-        self.layer_tree.setDragDropMode(QTreeWidget.InternalMove)
-        self.layer_tree.setDefaultDropAction(Qt.MoveAction)
+        self.layer_tree.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.layer_tree.setDefaultDropAction(Qt.DropAction.MoveAction)
         
         # Connect drop completed signal
         self.layer_tree.dropCompleted.connect(self.on_drop_completed)
         
         # Enable editing for layer name column (column 0)
-        self.layer_tree.setEditTriggers(QTreeWidget.NoEditTriggers)  # Disable default triggers
+        self.layer_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)  # Disable default triggers
         self.layer_tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         
         # Install event filter for F2 key
@@ -216,7 +217,7 @@ class LayersAdvancedDialog(QDockWidget):
         
         # Enable header context menu for column visibility
         header = self.layer_tree.header()
-        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self.show_header_context_menu)
         
         # Restore column visibility settings
@@ -1083,8 +1084,8 @@ class LayersAdvancedDialog(QDockWidget):
     
     def eventFilter(self, obj, event):
         """Filter events to catch F2 key for renaming and Space for visibility toggle."""
-        if obj == self.layer_tree and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_F2:
+        if obj == self.layer_tree and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_F2:
                 # Get selected item
                 selected_items = self.layer_tree.selectedItems()
                 if selected_items:
@@ -1095,7 +1096,7 @@ class LayersAdvancedDialog(QDockWidget):
                         self.start_rename_item(item)
                         return True
             
-            elif event.key() == Qt.Key_Space:
+            elif event.key() == Qt.Key.Key_Space:
                 # Toggle visibility for selected items
                 selected_items = self.layer_tree.selectedItems()
                 if selected_items:

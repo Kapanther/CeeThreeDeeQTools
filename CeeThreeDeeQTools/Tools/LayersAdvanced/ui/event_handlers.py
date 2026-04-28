@@ -21,7 +21,7 @@ class EventHandlers:
         """Handle F2 key press to start renaming."""
         from qgis.PyQt.QtCore import Qt, QEvent
         
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_F2:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_F2:
             selected = dialog.layer_tree.selectedItems()
             if len(selected) == 1:
                 dialog.start_rename_item(selected[0])
