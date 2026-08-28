@@ -404,11 +404,10 @@ class PackageLayerUpdaterLogic:
             options.saveMetadata = True
             
             # Handle FID field ordering and preservation
-            fid_field_idx = -1
-            for idx, field in enumerate(source_layer.fields()):
-                if field.name().upper() == 'FID':
-                    fid_field_idx = idx
-                    break
+            # Use the same detection logic as _check_and_fix_duplicate_fids: match by name
+            # first, then fall back to the provider's primary key attribute (covers layers
+            # where the FID/PK field isn't literally named "FID", e.g. OBJECTID, gpkg_fid...)
+            fid_field_idx = PackageLayerUpdaterLogic._find_fid_field_idx(source_layer)
             
             if not preserve_fid:
                 # Skip the FID field to let geopackage auto-generate new FIDs
@@ -438,13 +437,8 @@ class PackageLayerUpdaterLogic:
             
             # Check FID values in source layer for debugging
             fid_values = []
-            for feature in source_layer.getFeatures():
-                fid_field_idx = -1
-                for idx, field in enumerate(source_layer.fields()):
-                    if field.name().upper() == 'FID':
-                        fid_field_idx = idx
-                        break
-                if fid_field_idx >= 0:
+            if fid_field_idx >= 0:
+                for feature in source_layer.getFeatures():
                     fid_val = feature.attribute(fid_field_idx)
                     fid_values.append(fid_val)
             print(f"[DEBUG] FID values in source layer: {sorted(fid_values)}")
@@ -865,6 +859,31 @@ class PackageLayerUpdaterLogic:
             return {}
 
     @staticmethod
+    def _find_fid_field_idx(layer: QgsVectorLayer) -> int:
+        """
+        Find the index of the layer's FID field.
+        Matches a field literally named "FID" (case-insensitive) first, then falls
+        back to the data provider's primary key attribute for layers where the
+        FID/PK field has a different name (e.g. OBJECTID, gpkg_fid...).
+
+        Returns:
+            int: field index, or -1 if no FID field could be found
+        """
+        for idx, field in enumerate(layer.fields()):
+            if field.name().upper() == 'FID':
+                return idx
+
+        try:
+            if hasattr(layer.dataProvider(), 'primaryKeyAttributes'):
+                fid_field_attrs = layer.dataProvider().primaryKeyAttributes()
+                if fid_field_attrs and len(fid_field_attrs) > 0:
+                    return fid_field_attrs[0]
+        except Exception:
+            pass
+
+        return -1
+
+    @staticmethod
     def _check_and_fix_duplicate_fids(
         layer: QgsVectorLayer,
         fix_fids: bool,
@@ -892,24 +911,9 @@ class PackageLayerUpdaterLogic:
         }
         
         try:
-            # ALWAYS try to find the FID field (case-insensitive check!)
-            fid_field_idx = -1
-            fid_field_name = None
-            for idx, field in enumerate(layer.fields()):
-                if field.name().upper() == 'FID':  # Changed to uppercase comparison
-                    fid_field_idx = idx
-                    fid_field_name = field.name()  # Store actual field name
-                    break
-            
-            if fid_field_idx < 0:
-                try:
-                    if hasattr(layer.dataProvider(), 'primaryKeyAttributes'):
-                        fid_field_attrs = layer.dataProvider().primaryKeyAttributes()
-                        if fid_field_attrs and len(fid_field_attrs) > 0:
-                            fid_field_idx = fid_field_attrs[0]
-                            fid_field_name = layer.fields()[fid_field_idx].name()
-                except Exception:
-                    pass
+            # ALWAYS try to find the FID field (case-insensitive check, with primary key fallback)
+            fid_field_idx = PackageLayerUpdaterLogic._find_fid_field_idx(layer)
+            fid_field_name = layer.fields()[fid_field_idx].name() if fid_field_idx >= 0 else None
             
             if fid_field_idx < 0:
                 # No FID field - this is normal for shapefiles/CSVs without FID

@@ -151,8 +151,19 @@ class CTDQPlugin(object):
         self.layersAdvancedAction.triggered.connect(self.toggleLayersAdvancedDock)
         self.menu.addAction(self.layersAdvancedAction)
 
-        # Initialize dock widget reference (created on first toggle)
+        # Create action for the Data Connector dock widget
+        self.dataConnectorAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Data Connector"),
+            self.iface.mainWindow(),
+        )
+        self.dataConnectorAction.setCheckable(True)
+        self.dataConnectorAction.triggered.connect(self.toggleDataConnectorDock)
+        self.menu.addAction(self.dataConnectorAction)
+
+        # Initialize dock widget references (created on first toggle)
         self.layersAdvancedDock = None
+        self.dataConnectorDock = None
 
         # Create action that will start plugin help
         self.helpAction = QAction(
@@ -373,6 +384,24 @@ class CTDQPlugin(object):
         else:
             self.layersAdvancedDock.hide()
 
+    def toggleDataConnectorDock(self, checked):
+        """Toggle the Data Connector dock widget."""
+        if self.dataConnectorDock is None:
+            from .Tools.DataConnector.ctdq_DataConnectorDialog import DataConnectorDialog
+            self.dataConnectorDock = DataConnectorDialog(self.iface, self.iface.mainWindow())
+            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dataConnectorDock)
+
+            def update_action_state(visible):
+                if hasattr(self, 'dataConnectorAction'):
+                    self.dataConnectorAction.setChecked(visible)
+
+            self.dataConnectorDock.visibilityChanged.connect(update_action_state)
+
+        if checked:
+            self.dataConnectorDock.show()
+        else:
+            self.dataConnectorDock.hide()
+
     def unload(self):
         """
         Unloads the plugin and removes the provider from the processing registry.
@@ -396,8 +425,14 @@ class CTDQPlugin(object):
             self.iface.removeDockWidget(self.layersAdvancedDock)
             self.layersAdvancedDock = None
 
+        # Remove the Data Connector dock widget
+        if self.dataConnectorDock:
+            self.iface.removeDockWidget(self.dataConnectorDock)
+            self.dataConnectorDock = None
+
         del self.validateAction
         del self.mirrorProjectAction
         del self.packageLayerUpdaterAction
         del self.layersAdvancedAction
+        del self.dataConnectorAction
         del self.helpAction
