@@ -141,6 +141,15 @@ class CTDQPlugin(object):
         self.packageLayerUpdaterAction.triggered.connect(self.openPackageLayerUpdaterDialog)
         self.menu.addAction(self.packageLayerUpdaterAction)
 
+        # Create action for the LandXML Import tool
+        self.landXMLImportAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("LandXML Import"),
+            self.iface.mainWindow(),
+        )
+        self.landXMLImportAction.triggered.connect(self.openLandXMLImportDialog)
+        self.menu.addAction(self.landXMLImportAction)
+
         # Create action for the Layers Advanced dock widget
         self.layersAdvancedAction = QAction(
             QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
@@ -363,6 +372,15 @@ class CTDQPlugin(object):
         dialog.set_update_callback(update_callback)
         dialog.show()
 
+    def openLandXMLImportDialog(self):
+        """Open the LandXML Import dialog."""
+        from .Tools.LandXMLImport.ctdq_LandXMLImportDialog import LandXMLImportDialog
+
+        dialog = LandXMLImportDialog(self.iface, self.iface.mainWindow())
+        dialog.show()
+        # Keep a reference so the non-modal dialog is not garbage collected
+        self.landXMLImportDialog = dialog
+
     def toggleLayersAdvancedDock(self, checked):
         """Toggle the Layers Advanced dock widget."""
         # Create the dock widget on first toggle if it doesn't exist
@@ -433,6 +451,7 @@ class CTDQPlugin(object):
         del self.validateAction
         del self.mirrorProjectAction
         del self.packageLayerUpdaterAction
+        del self.landXMLImportAction
         del self.layersAdvancedAction
         del self.dataConnectorAction
         del self.helpAction
