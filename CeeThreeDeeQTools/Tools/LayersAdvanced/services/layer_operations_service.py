@@ -3,6 +3,9 @@ Service for handling layer and group movement operations.
 """
 
 from qgis.core import QgsProject
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LayerOperationsService:
@@ -190,7 +193,7 @@ class LayerOperationsService:
                     # Recursively handle nested groups
                     LayerOperationsService.set_group_visibility_recursive(child, visible)
         except Exception:
-            pass
+            LOGGER.debug("Could not set group visibility recursively", exc_info=True)
     
     @staticmethod
     def move_layers_to_group(layer_ids, target_group_name):

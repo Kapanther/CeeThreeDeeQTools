@@ -1,7 +1,10 @@
 import os
 import numpy as np
 import heapq
+import logging
 from osgeo import gdal
+
+LOGGER = logging.getLogger(__name__)
 
 class CtdqRasterFunctions:
     @staticmethod
@@ -192,7 +195,7 @@ class CtdqRasterFunctions:
                         pct = int(5 + (y / float(height)) * 10)
                         feedback.setProgress(pct)
                     except Exception:
-                        pass
+                        LOGGER.debug("Raster progress update failed", exc_info=True)
         
         feedback.pushInfo(f"DEM array shape after read: {dem.shape}, dtype: {dem.dtype}")
         
@@ -301,7 +304,7 @@ class CtdqRasterFunctions:
                     pct = int(15 + (processed / float(valid_count)) * 75)
                     feedback.setProgress(min(90, pct))
                 except Exception:
-                    pass
+                    LOGGER.debug("Raster sink-fill progress update failed", exc_info=True)
         
         feedback.pushInfo(f"Processed {processed} valid cells during sink-fill")
        

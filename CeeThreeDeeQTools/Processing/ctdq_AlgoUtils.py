@@ -27,6 +27,7 @@ from qgis.PyQt.QtGui import QColor
 
 from qgis.utils import iface
 from qgis.PyQt.QtCore import QItemSelectionModel, Qt, QCoreApplication
+import hashlib
 import inspect
 
 import processing
@@ -81,7 +82,7 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
                     # older/newer API differences — ignore failures
                     iface.layerTreeView().refreshLayerSymbology()
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not refresh layer symbology", exc_info=True)
 
     def _apply_vector_symbology(self, layer, context, feedback):
         """Apply vector symbology from PostVectorSymbology object."""
@@ -134,7 +135,6 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
             renderer: The QgsCategorizedSymbolRenderer to update
             field_name: The name of the field to categorize
         """
-        import random
         categories = []
         unique_values = layer.uniqueValues(layer.fields().indexFromName(field_name))
         
@@ -145,9 +145,10 @@ class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):
             if value is not None:
                 # Create a copy of the symbol with different color
                 category_symbol = base_symbol.clone()
-                # Generate a random-ish color based on the value hash
-                random.seed(hash(str(value)))
-                color = QColor.fromHsv(random.randint(0, 359), 180, 200, 128)
+                # Colors are presentation-only; derive a stable hue without PRNG state.
+                digest = hashlib.sha256(str(value).encode("utf-8")).digest()
+                hue = int.from_bytes(digest[:2], "big") % 360
+                color = QColor.fromHsv(hue, 180, 200, 128)
                 category_symbol.setColor(color)
                 
                 category = QgsRendererCategory(value, category_symbol, str(value))

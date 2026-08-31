@@ -12,6 +12,7 @@
 from qgis.PyQt.QtWidgets import QTreeWidgetItem, QWidget, QHBoxLayout, QLabel
 from qgis.PyQt.QtCore import Qt, QSize
 from qgis.PyQt.QtGui import QIcon, QPixmap, QPainter, QColor, QLinearGradient
+import logging
 from qgis.core import (
     QgsMapLayer,
     QgsLayerTreeGroup,
@@ -32,6 +33,8 @@ from qgis.core import (
 )
 from ..services.layer_service import LayerService
 from ..services.visibility_service import VisibilityService
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GradientWidget(QWidget):
@@ -338,9 +341,8 @@ class LayerTreeBuilder:
                     for rule in root_rule.children():
                         LayerTreeBuilder.add_rule_item(rule, parent_item, vector_layer, layer_node)
         
-        except Exception as e:
-            # Silently fail if symbology can't be loaded
-            pass
+        except Exception:
+            LOGGER.debug("Could not load layer symbology", exc_info=True)
     
     @staticmethod
     def add_category_item(category, index, parent_item, vector_layer, layer_node):
@@ -373,7 +375,7 @@ class LayerTreeBuilder:
             item.setFont(0, font)
             
         except Exception:
-            pass
+            LOGGER.debug("Could not add categorized renderer item", exc_info=True)
     
     @staticmethod
     def add_range_item(range_item, index, parent_item, vector_layer, layer_node):
@@ -406,7 +408,7 @@ class LayerTreeBuilder:
             item.setFont(0, font)
             
         except Exception:
-            pass
+            LOGGER.debug("Could not add graduated renderer item", exc_info=True)
     
     @staticmethod
     def add_rule_item(rule, parent_item, vector_layer, layer_node):
@@ -444,7 +446,7 @@ class LayerTreeBuilder:
                     LayerTreeBuilder.add_rule_item(child_rule, item, vector_layer, layer_node)
             
         except Exception:
-            pass
+            LOGGER.debug("Could not add rule renderer item", exc_info=True)
     
     @staticmethod
     def create_symbol_icon(symbol, layer):
@@ -557,7 +559,7 @@ class LayerTreeBuilder:
             item.setFont(0, font)
             
         except Exception:
-            pass
+            LOGGER.debug("Could not add raster palette item", exc_info=True)
     
     @staticmethod
     def add_raster_contour_items(renderer, parent_item, raster_layer, dialog=None):
@@ -955,7 +957,7 @@ class LayerTreeBuilder:
             item.setFont(0, font)
             
         except Exception:
-            pass
+            LOGGER.debug("Could not add raster RGB item", exc_info=True)
     
     @staticmethod
     def get_layer_icon(layer):
@@ -974,5 +976,5 @@ class LayerTreeBuilder:
             elif layer.type() == QgsMapLayer.RasterLayer:
                 return QIcon(":/images/themes/default/mIconRaster.svg")
         except Exception:
-            pass
+            LOGGER.debug("Could not create layer icon", exc_info=True)
         return None

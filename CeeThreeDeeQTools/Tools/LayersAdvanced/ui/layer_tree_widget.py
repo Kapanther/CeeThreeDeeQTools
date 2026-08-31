@@ -4,6 +4,9 @@ from qgis.PyQt.QtWidgets import QTreeWidget, QTreeWidgetItem
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsMapLayer
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LayerTreeWidget(QTreeWidget):
@@ -66,7 +69,7 @@ class LayerTreeWidget(QTreeWidget):
             elif layer.type() == QgsMapLayer.RasterLayer:
                 return QIcon(":/images/themes/default/mIconRaster.svg")
         except Exception:
-            pass
+            LOGGER.debug("Could not create layer icon", exc_info=True)
         return None
     
     def _on_item_changed(self, item, column):

@@ -50,8 +50,7 @@ from qgis.core import (
     QgsProcessing  # <-- Added import for QgsProcessing
 )
 import tempfile, uuid, os, processing
-import xml.etree.ElementTree as ET
-from xml.dom.minidom import parseString
+import logging
 from ..ctdq_support import CTDQSupport, ctdprocessing_command_info
 from ..Functions import ctdq_raster_functions
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
@@ -61,6 +60,8 @@ import numpy as np
 from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor
 # endregion
+
+LOGGER = logging.getLogger(__name__)
 
 class FindRasterPonds(ctdqAlgoRun):
 
@@ -203,7 +204,7 @@ class FindRasterPonds(ctdqAlgoRun):
             feedback.setProgress(0)
         except Exception:
             # some feedback implementations may not support setProgress
-            pass
+            LOGGER.debug("Initial pond-processing progress update failed", exc_info=True)
 
         # get key raster stats and 
         provider = input_raster.dataProvider()
@@ -272,7 +273,7 @@ class FindRasterPonds(ctdqAlgoRun):
         try:
             feedback.setProgress(80)
         except Exception:
-            pass
+            LOGGER.debug("Pond-depth progress update failed", exc_info=True)
         
         # Calculate valid pond depth raster (where depth > min_depth)
         min_depth = self.parameterAsDouble(parameters, "MIN_DEPTH", context)
@@ -282,7 +283,7 @@ class FindRasterPonds(ctdqAlgoRun):
         try:
             feedback.setProgress(85)
         except Exception:
-            pass
+            LOGGER.debug("Valid pond-depth progress update failed", exc_info=True)
 
         # endregion
         
@@ -300,7 +301,7 @@ class FindRasterPonds(ctdqAlgoRun):
         try:
             feedback.setProgress(90)
         except Exception:
-            pass
+            LOGGER.debug("Pond polygonization progress update failed", exc_info=True)
 
         # After polygonize, filter polygons to keep only those with IsPond == 1 we can also filter by area here as well
         try:
@@ -395,7 +396,7 @@ class FindRasterPonds(ctdqAlgoRun):
         try:
             feedback.setProgress(95)
         except Exception:
-            pass
+            LOGGER.debug("Final pond-statistics progress update failed", exc_info=True)
 
         # Compute PONDRLmin = PONDRLmax - DEPTH_max and PONDvolume = DEPTH_sum * pixel_area
         try:
@@ -600,7 +601,7 @@ class FindRasterPonds(ctdqAlgoRun):
                 try:
                     feedback.setProgress(95)
                 except Exception:
-                    pass       
+                    LOGGER.debug("Pond output progress update failed", exc_info=True)
                     
         except Exception as e:
             feedback.pushWarning(f"Exception during PONDRLmin/PONDvolume computation: {e}")

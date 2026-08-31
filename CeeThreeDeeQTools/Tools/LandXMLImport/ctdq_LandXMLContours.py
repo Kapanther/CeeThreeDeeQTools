@@ -8,7 +8,7 @@ major contours from the ``value`` field with a text buffer.
 """
 
 import math
-import random
+import hashlib
 
 from qgis.core import (
     QgsApplication,
@@ -140,8 +140,9 @@ class LandXMLContours:
 
     @staticmethod
     def _colours():
-        """A random light colour plus a darker version of the same hue."""
-        hue = random.randint(0, 359)
+        """A stable light colour plus a darker version of the same hue."""
+        digest = hashlib.sha256(b"LandXMLContours").digest()
+        hue = int.from_bytes(digest[:2], "big") % 360
         minor = QColor.fromHsl(hue, 150, 165)
         major = QColor.fromHsl(hue, 200, 85)
         return minor, major

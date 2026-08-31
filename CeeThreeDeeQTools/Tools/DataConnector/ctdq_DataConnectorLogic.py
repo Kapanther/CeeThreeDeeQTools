@@ -10,9 +10,12 @@
 """
 
 import json
+import logging
 from datetime import datetime
 
 from qgis.core import QgsProject, QgsMapLayer, QgsWkbTypes, QgsAbstractMetadataBase
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Provider types considered "streamed" services that can be extracted/clipped.
@@ -180,14 +183,14 @@ class DataConnectorLogic:
                 if link.format == LINK_FORMAT:
                     return DataConnectorLogic._parse_payload(link.description, link.url)
         except Exception:
-            pass
+            LOGGER.debug("Could not read connected-layer metadata links", exc_info=True)
 
         try:
             raw = layer.customProperty(CUSTOM_PROPERTY_KEY, '')
             if raw:
                 return DataConnectorLogic._parse_payload(raw, '')
         except Exception:
-            pass
+            LOGGER.debug("Could not read connected-layer custom properties", exc_info=True)
 
         return {}
 

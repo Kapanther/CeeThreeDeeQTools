@@ -15,6 +15,9 @@ import os
 from datetime import datetime
 import sqlite3
 import processing
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PackageLayerUpdaterLogic:
@@ -777,7 +780,7 @@ class PackageLayerUpdaterLogic:
                 mtime = os.path.getmtime(file_path)
                 file_modified_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d@%H-%M-%S")
         except Exception:
-            pass
+            LOGGER.debug("Could not read source file modification time", exc_info=True)
         
         return f"Updated;{timestamp};User;{user};DateModified;{file_modified_date};Source;{source_path}"
     
@@ -837,7 +840,7 @@ class PackageLayerUpdaterLogic:
                 timestamp_str = parts[1].strip()
                 parsed['timestamp'] = datetime.strptime(timestamp_str, "%Y-%m-%d@%H-%M-%S")
             except Exception:
-                pass
+                LOGGER.debug("Could not parse package-update timestamp", exc_info=True)
             
             if len(parts) > 3:
                 parsed['user'] = parts[3].strip()
@@ -848,7 +851,7 @@ class PackageLayerUpdaterLogic:
                     if date_modified_str != "Unknown":
                         parsed['date_modified'] = datetime.strptime(date_modified_str, "%Y-%m-%d@%H-%M-%S")
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not parse layer modification timestamp", exc_info=True)
             
             if len(parts) > 7:
                 parsed['source'] = parts[7].strip()
@@ -879,7 +882,7 @@ class PackageLayerUpdaterLogic:
                 if fid_field_attrs and len(fid_field_attrs) > 0:
                     return fid_field_attrs[0]
         except Exception:
-            pass
+            LOGGER.debug("Could not identify the FID field", exc_info=True)
 
         return -1
 
@@ -1083,7 +1086,7 @@ class PackageLayerUpdaterLogic:
                 if layer.isEditable():
                     layer.rollBack()
             except Exception:
-                pass
+                LOGGER.debug("Could not roll back package-layer edits", exc_info=True)
             
             result['can_proceed'] = False
             result['message'] = f'Error checking FIDs: {str(e)}. Manually fix FIDs in source data.'

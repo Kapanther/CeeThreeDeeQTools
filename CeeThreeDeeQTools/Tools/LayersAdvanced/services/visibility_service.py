@@ -1,6 +1,9 @@
 """Service for managing layer visibility."""
 
 from qgis.core import QgsProject, QgsMapLayer
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class VisibilityService:
@@ -17,7 +20,7 @@ class VisibilityService:
             if layer_tree_layer:
                 return layer_tree_layer.isVisible()
         except Exception:
-            pass
+            LOGGER.debug("Could not read layer visibility", exc_info=True)
         
         return False
     

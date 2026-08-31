@@ -33,6 +33,9 @@ __revision__ = '$Format:%H$'
 import os
 import sys
 import inspect
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
@@ -247,7 +250,7 @@ class CTDQPlugin(object):
                 try:
                     progress_cb(message, percent)
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not forward mirror-project progress", exc_info=True)
 
             try:
                 # Execute the export
@@ -271,13 +274,13 @@ class CTDQPlugin(object):
                 try:
                     dialog.display_results(results)
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not display mirror-project results", exc_info=True)
             except Exception as e:
                 progress.close()
                 try:
                     dialog.append_console(f"Error during export: {str(e)}")
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not append mirror-project error to the dialog", exc_info=True)
                 QMessageBox.critical(
                     self.iface.mainWindow(),
                     self.tr("Mirror Project - Error"),
@@ -337,7 +340,7 @@ class CTDQPlugin(object):
                 try:
                     progress_cb(message, percent)
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not forward package-update progress", exc_info=True)
             
             try:
                 # Execute the update
@@ -355,13 +358,13 @@ class CTDQPlugin(object):
                 try:
                     dialog.display_results(results)
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not display package-update results", exc_info=True)
             except Exception as e:
                 progress.close()
                 try:
                     dialog.append_console(f"Error during update: {str(e)}")
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not append package-update error to the dialog", exc_info=True)
                 QMessageBox.critical(
                     self.iface.mainWindow(),
                     self.tr("Package Layer Updater - Error"),

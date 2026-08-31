@@ -54,6 +54,9 @@ from .ui.context_menu import LayerContextMenu
 from .ui.event_handlers import EventHandlers
 from .ui.filter_widget import FilterService
 import os
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DraggableTreeWidget(QTreeWidget):
@@ -333,7 +336,7 @@ class LayersAdvancedDialog(QDockWidget):
             try:
                 layer.crsChanged.connect(self.on_layer_changed)
             except Exception:
-                pass
+                LOGGER.debug("Could not connect CRS-change signal", exc_info=True)
     
     def on_renderer_changed(self):
         """Handle renderer/symbology changes (e.g., from QGIS layer styling panel)."""
@@ -1330,7 +1333,7 @@ class LayersAdvancedDialog(QDockWidget):
                 except (AttributeError, TypeError):
                     pass
         except Exception:
-            pass
+            LOGGER.debug("Could not disconnect layer signals during close", exc_info=True)
         
         event.accept()
     

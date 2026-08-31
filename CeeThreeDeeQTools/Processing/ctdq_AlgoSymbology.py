@@ -26,6 +26,9 @@ from qgis.core import (
     Qgis,  # Import for label placement enums
 )
 from qgis.PyQt.QtGui import QColor
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PostVectorSymbology:
@@ -51,7 +54,7 @@ class PostVectorSymbology:
             if color_ramp and hasattr(self.graduated_renderer, "updateColorRamp"):
                 self.graduated_renderer.updateColorRamp(color_ramp)
         except Exception:
-            pass  # Fall back to default colors
+            LOGGER.debug("Could not load the requested color ramp", exc_info=True)
         
         return self
     

@@ -27,6 +27,9 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsMapLayer
 import os
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MirrorProjectDialog(QDialog):
@@ -96,7 +99,7 @@ class MirrorProjectDialog(QDialog):
                 ok_btn.setAutoDefault(False)
                 ok_btn.setDefault(False)
             except Exception:
-                pass
+                LOGGER.debug("Could not configure the mirror-project default button", exc_info=True)
         if cancel_btn:
             cancel_btn.setText("Exit")
             cancel_btn.setToolTip("Close this dialog (any running export should be cancelled first).")
@@ -569,14 +572,14 @@ class MirrorProjectDialog(QDialog):
             # Ensure message is string and add newline
             self.console.append(str(message))
         except Exception:
-            pass
+            LOGGER.debug("Could not append to the mirror-project console", exc_info=True)
 
     def clear_console(self):
         """Clear the console."""
         try:
             self.console.clear()
         except Exception:
-            pass
+            LOGGER.debug("Could not clear the mirror-project console", exc_info=True)
 
     def display_results(self, results: dict):
         """
@@ -601,7 +604,7 @@ class MirrorProjectDialog(QDialog):
                     self.append_console(f"  - {e}")
             self.append_console("\n=== End Results ===\n")
         except Exception:
-            pass
+            LOGGER.debug("Could not display mirror-project results", exc_info=True)
 
     def accept(self):
         """Validate and accept the dialog."""
@@ -668,7 +671,7 @@ class MirrorProjectDialog(QDialog):
                 try:
                     self.append_console(f"[{percent}%] {message}")
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not append mirror-project progress", exc_info=True)
 
             # Call export callback (plugin is responsible for catching exceptions and writing results)
             self._export_callback(progress_cb)
@@ -678,5 +681,5 @@ class MirrorProjectDialog(QDialog):
             try:
                 self.button_box.button(QDialogButtonBox.Ok).setEnabled(True)
             except Exception:
-                pass
+                LOGGER.debug("Could not restore the mirror-project run button", exc_info=True)
             self._export_running = False

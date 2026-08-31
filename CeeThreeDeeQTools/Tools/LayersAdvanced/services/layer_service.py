@@ -3,6 +3,9 @@
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsVectorLayer, QgsRasterLayer
 )
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LayerService:
@@ -46,7 +49,7 @@ class LayerService:
                 height = layer.height()
                 return f"{width} x {height}"
         except Exception:
-            pass
+            LOGGER.debug("Could not determine basic layer information", exc_info=True)
         return "-"
     
     @staticmethod
@@ -73,46 +76,46 @@ class LayerService:
         try:
             info_lines.append(f"Source: {layer.source()}")
         except Exception:
-            pass
+            LOGGER.debug("Could not read layer source", exc_info=True)
         
         try:
             info_lines.append(f"Provider: {layer.providerType()}")
         except Exception:
-            pass
+            LOGGER.debug("Could not read layer provider", exc_info=True)
         
         try:
             info_lines.append(f"CRS: {layer.crs().authid()}")
         except Exception:
-            pass
+            LOGGER.debug("Could not read layer CRS", exc_info=True)
         
         try:
             extent = layer.extent()
             info_lines.append(f"Extent: {extent.toString()}")
         except Exception:
-            pass
+            LOGGER.debug("Could not read layer extent", exc_info=True)
         
         if isinstance(layer, QgsVectorLayer):
             try:
                 info_lines.append(f"Feature Count: {layer.featureCount():,}")
             except Exception:
-                pass
+                LOGGER.debug("Could not read layer feature count", exc_info=True)
             
             try:
                 fields = layer.fields()
                 field_names = [f.name() for f in fields]
                 info_lines.append(f"Fields: {', '.join(field_names)}")
             except Exception:
-                pass
+                LOGGER.debug("Could not read layer fields", exc_info=True)
         
         elif isinstance(layer, QgsRasterLayer):
             try:
                 info_lines.append(f"Dimensions: {layer.width()} x {layer.height()}")
             except Exception:
-                pass
+                LOGGER.debug("Could not read raster dimensions", exc_info=True)
             
             try:
                 info_lines.append(f"Band Count: {layer.bandCount()}")
             except Exception:
-                pass
+                LOGGER.debug("Could not read raster band count", exc_info=True)
         
         return "\n".join(info_lines)

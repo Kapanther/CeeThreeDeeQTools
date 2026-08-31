@@ -27,6 +27,9 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsMapLayer
 import os
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PackageLayerUpdaterDialog(QDialog):
@@ -529,14 +532,14 @@ class PackageLayerUpdaterDialog(QDialog):
         try:
             self.console.clear()
         except Exception:
-            pass
+            LOGGER.debug("Could not clear the package-updater console", exc_info=True)
     
     def append_console(self, message: str):
         """Append a message to the console."""
         try:
             self.console.append(message)
         except Exception:
-            pass
+            LOGGER.debug("Could not append to the package-updater console", exc_info=True)
     
     def display_results(self, results: dict):
         """Display the update results in the console."""
@@ -571,7 +574,7 @@ class PackageLayerUpdaterDialog(QDialog):
             
             self.append_console("=== End Results ===\n")
         except Exception:
-            pass
+            LOGGER.debug("Could not display package-updater results", exc_info=True)
     
     def set_update_callback(self, callback):
         """Register a callback that performs the update."""
@@ -607,7 +610,7 @@ class PackageLayerUpdaterDialog(QDialog):
                 try:
                     self.append_console(f"[{percent}%] {message}")
                 except Exception:
-                    pass
+                    LOGGER.debug("Could not append package-updater progress", exc_info=True)
             
             self._update_callback(progress_cb)
         
@@ -615,5 +618,5 @@ class PackageLayerUpdaterDialog(QDialog):
             try:
                 self.button_box.button(QDialogButtonBox.Ok).setEnabled(True)
             except Exception:
-                pass
+                LOGGER.debug("Could not restore the package-updater run button", exc_info=True)
             self._update_running = False
