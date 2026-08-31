@@ -29,8 +29,11 @@ from qgis.utils import iface
 from qgis.PyQt.QtCore import QItemSelectionModel, Qt, QCoreApplication
 import hashlib
 import inspect
+import logging
 
 import processing
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LayerPostProcessor(QgsProcessingLayerPostProcessorInterface):

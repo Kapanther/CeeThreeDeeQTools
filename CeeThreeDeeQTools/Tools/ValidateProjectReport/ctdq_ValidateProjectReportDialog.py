@@ -1,4 +1,4 @@
-﻿from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QVBoxLayout, QToolButton, QFrame, QTextBrowser, QProgressDialog
+﻿from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QProgressDialog
 import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsProject

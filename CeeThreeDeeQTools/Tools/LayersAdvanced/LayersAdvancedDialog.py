@@ -16,11 +16,9 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QAbstractItemView,
     QTreeWidget,
-    QTreeWidgetItem,
     QTreeWidgetItemIterator,
     QPushButton,
     QLabel,
-    QCheckBox,
     QLineEdit,
     QMenu,
     QTextEdit,
@@ -30,17 +28,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QEvent
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
-    QgsProject, 
-    QgsMapLayer, 
-    QgsVectorLayer, 
-    QgsRasterLayer,
-    QgsLayerTreeGroup,
-    QgsLayerTreeLayer,
-    QgsCategorizedSymbolRenderer,
-    QgsGraduatedSymbolRenderer,
-    QgsRuleBasedRenderer,
-    QgsRendererCategory,
-    QgsRendererRange
+    QgsProject
 )
 from .services.layer_service import LayerService
 from .services.visibility_service import VisibilityService

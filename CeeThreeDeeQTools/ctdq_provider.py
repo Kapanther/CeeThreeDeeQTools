@@ -30,8 +30,7 @@ __copyright__ = '(C) 2025 by CeeThreeDee'
 
 __revision__ = '$Format:%H$'
 
-from CeeThreeDeeQTools.Processing.ctdq_CatchmentsAndStreams import CatchmentsAndStreams
-from qgis.core import QgsProcessingProvider, QgsProcessingAlgorithm, Qgis
+from qgis.core import QgsProcessingProvider
 from qgis.gui import QgisInterface
 from processing.core.ProcessingConfig import ProcessingConfig, Setting
 from qgis.PyQt.QtGui import QIcon
