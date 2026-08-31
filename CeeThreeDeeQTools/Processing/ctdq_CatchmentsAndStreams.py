@@ -19,12 +19,15 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsProcessingMultiStepFeedback,
     QgsVectorLayer,
+    QgsRasterLayer,
     QgsField,
     QgsWkbTypes,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterRasterLayer,  # Import QgsProcessingParameterRasterLayer for raster input
     QgsProcessingParameterNumber,  # Import QgsProcessingParameterNumber for numeric input
     QgsProcessingException,
+    QgsProcessingUtils,
+    Qgis,
     QgsClassificationQuantile,
     QgsMessageLog,
     QgsCategorizedSymbolRenderer,
@@ -42,7 +45,7 @@ from qgis.core import (
     QgsTextBufferSettings,  # Import for text buffer
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.PyQt.QtGui import QColor  # Import QColor for random colors
 from .ctdq_AlgoRun import ctdqAlgoRun  # <-- Add this import to fix the missing base class
 from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the new symbology class
@@ -182,7 +185,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
 
             # generate a fill direction raster using the DEM
             
-            dem_filled = processing.run("grass7:r.fill.dir", {
+            dem_filled = self._run_child_algorithm("grass7:r.fill.dir", {
                 'input': input_dem,
                 'output': QgsProcessing.TEMPORARY_OUTPUT,
                 'direction': QgsProcessing.TEMPORARY_OUTPUT,
@@ -190,7 +193,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 'format': 0
             }, context=context, feedback=feedback)['output']
 
-            grass_watershed = processing.run("grass7:r.watershed", {
+            grass_watershed = self._run_child_algorithm("grass7:r.watershed", {
                 'elevation': dem_filled,
                 'accumulation': QgsProcessing.TEMPORARY_OUTPUT,
                 'drainage': QgsProcessing.TEMPORARY_OUTPUT,
@@ -202,7 +205,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
 
             grass_flow_accumulation = grass_watershed['accumulation']            
 
-            streams = processing.run("grass7:r.stream.extract", {
+            streams = self._run_child_algorithm("grass7:r.stream.extract", {
                 'elevation': dem_filled,
                 'accumulation': grass_flow_accumulation,
                 'threshold': input_threshold,
@@ -214,14 +217,14 @@ class CatchmentsAndStreams(ctdqAlgoRun):
 
             grass_basins = grass_watershed['basin']
 
-            basins = processing.run("grass7:r.to.vect", {
+            basins = self._run_child_algorithm("grass7:r.to.vect", {
                 'input': grass_basins,
                 'type': 2, # area
                 'output': QgsProcessing.TEMPORARY_OUTPUT
             }, context=context, feedback=feedback)['output']
 
             # Apply smoothing
-            smoothed_streams = processing.run("native:smoothgeometry", {
+            smoothed_streams = self._run_child_algorithm("native:smoothgeometry", {
                 'INPUT': streams,
                 'ITERATIONS': smooth_iterations,
                 'OFFSET': smooth_offset,
@@ -230,7 +233,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             }, context=context, feedback=feedback)['OUTPUT']
 
             # Apply generalization to catchments using GRASS v.generalize with snakes method
-            generalized_basins = processing.run("grass7:v.generalize", {
+            generalized_basins = self._run_child_algorithm("grass7:v.generalize", {
                 'input': basins,
                 'type': 2,  # areas only
                 'method': 10,  # snakes method
@@ -255,7 +258,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
 
             # Fix geometries after generalization to handle any invalid geometries
             feedback.pushInfo("Fixing geometries after generalization...")
-            smoothed_basins = processing.run("native:fixgeometries", {
+            smoothed_basins = self._run_child_algorithm("native:fixgeometries", {
                 'INPUT': generalized_basins,
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
@@ -263,7 +266,7 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             ordered_streams = self.calculate_stream_orders(smoothed_streams, context, feedback)
             
             # Join catchments with stream network attribute
-            joined_catchments = processing.run("native:joinattributesbylocation", {
+            joined_catchments = self._run_child_algorithm("native:joinattributesbylocation", {
                 'INPUT': smoothed_basins,
                 'JOIN': ordered_streams,
                 'PREDICATE': [0],  # intersects
@@ -273,13 +276,22 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 'PREFIX': '',
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
+            joined_catchments = QgsProcessingUtils.mapLayerFromString(
+                joined_catchments, context
+            )
             
             # Dissolve catchments by network field to create networks
-            networks = processing.run("native:dissolve", {
+            networks = self._run_child_algorithm("native:dissolve", {
                 'INPUT': joined_catchments,
                 'FIELD': ['network'],
                 'OUTPUT': 'memory:'
             }, context=context, feedback=feedback)['OUTPUT']
+            networks = QgsProcessingUtils.mapLayerFromString(networks, context)
+
+            if joined_catchments is None or not joined_catchments.isValid():
+                raise QgsProcessingException("Joined catchments layer is invalid")
+            if networks is None or not networks.isValid():
+                raise QgsProcessingException("Networks layer is invalid")
 
             stream_sink,stream_dest_id = self.parameterAsSink(parameters,self.OUTPUT_STREAMS,context,
                                                               ordered_streams.fields(),QgsWkbTypes.LineString,input_dem.crs())
@@ -385,16 +397,126 @@ class CatchmentsAndStreams(ctdqAlgoRun):
         except Exception as e:
             raise QgsProcessingException(f"Error in {self.TOOL_NAME}: {e}")
         
+    def _run_child_algorithm(self, algorithm_id, parameters, context, feedback):
+        """Run a child algorithm and fail immediately when an output is missing."""
+        feedback.pushInfo(f"Running {algorithm_id}...")
+        QgsMessageLog.logMessage(
+            f"CatchmentsAndStreams: starting {algorithm_id}",
+            "CeeThreeDeeQTools",
+            Qgis.Info,
+        )
+
+        try:
+            result = processing.run(
+                algorithm_id,
+                parameters,
+                context=context,
+                feedback=feedback,
+                is_child_algorithm=True,
+            )
+        except Exception as error:
+            message = f"{algorithm_id} failed: {error}"
+            feedback.reportError(message)
+            QgsMessageLog.logMessage(message, "CeeThreeDeeQTools", Qgis.Critical)
+            raise QgsProcessingException(message) from error
+
+        for output_name, output_value in result.items():
+            feedback.pushInfo(
+                f"{algorithm_id} returned {output_name}: {output_value}"
+            )
+            QgsMessageLog.logMessage(
+                f"CatchmentsAndStreams: {algorithm_id} returned "
+                f"{output_name}={output_value}",
+                "CeeThreeDeeQTools",
+                Qgis.Info,
+            )
+
+            if output_name == "error" or output_value in (None, ""):
+                continue
+            if isinstance(output_value, str):
+                if os.path.exists(output_value):
+                    file_size = os.path.getsize(output_value)
+                    if file_size == 0:
+                        message = (
+                            f"{algorithm_id} created an empty output for '{output_name}': "
+                            f"{output_value}"
+                        )
+                        feedback.reportError(message)
+                        QgsMessageLog.logMessage(
+                            message, "CeeThreeDeeQTools", Qgis.Critical
+                        )
+                        raise QgsProcessingException(message)
+
+                    if output_value.lower().endswith(('.tif', '.tiff')):
+                        layer = QgsRasterLayer(output_value, output_name)
+                        if not layer.isValid():
+                            message = (
+                                f"{algorithm_id} created a raster that QGIS cannot open "
+                                f"for '{output_name}': {output_value}"
+                            )
+                            feedback.reportError(message)
+                            QgsMessageLog.logMessage(
+                                message, "CeeThreeDeeQTools", Qgis.Critical
+                            )
+                            raise QgsProcessingException(message)
+                        feedback.pushInfo(
+                            f"Validated raster {output_name}: {file_size} bytes, "
+                            f"{layer.width()} x {layer.height()} cells"
+                        )
+                    elif output_value.lower().endswith(('.gpkg', '.shp')):
+                        layer = QgsVectorLayer(output_value, output_name, "ogr")
+                        if not layer.isValid():
+                            message = (
+                                f"{algorithm_id} created a vector layer that QGIS cannot "
+                                f"open for '{output_name}': {output_value}"
+                            )
+                            feedback.reportError(message)
+                            QgsMessageLog.logMessage(
+                                message, "CeeThreeDeeQTools", Qgis.Critical
+                            )
+                            raise QgsProcessingException(message)
+                        feedback.pushInfo(
+                            f"Validated vector {output_name}: {file_size} bytes, "
+                            f"{layer.featureCount()} features"
+                        )
+                else:
+                    layer = QgsProcessingUtils.mapLayerFromString(output_value, context)
+                    if layer is None or not layer.isValid():
+                        message = (
+                            f"{algorithm_id} returned '{output_name}' as neither an "
+                            f"existing file nor a valid processing layer: {output_value}"
+                        )
+                        feedback.reportError(message)
+                        QgsMessageLog.logMessage(
+                            message, "CeeThreeDeeQTools", Qgis.Critical
+                        )
+                        raise QgsProcessingException(message)
+                    feedback.pushInfo(
+                        f"Validated in-memory layer {output_name}: "
+                        f"{layer.name()} ({layer.featureCount()} features)"
+                    )
+            elif hasattr(output_value, "isValid") and not output_value.isValid():
+                message = f"{algorithm_id} returned an invalid layer for '{output_name}'"
+                feedback.reportError(message)
+                QgsMessageLog.logMessage(
+                    message, "CeeThreeDeeQTools", Qgis.Critical
+                )
+                raise QgsProcessingException(message)
+
+        return result
+
     def calculate_stream_orders(self, stream_layer, context, feedback):
         try:
             if isinstance(stream_layer, str):
-                layer = QgsVectorLayer(stream_layer, "Streams", "ogr")
+                layer = QgsProcessingUtils.mapLayerFromString(stream_layer, context)
+                if layer is None:
+                    layer = QgsVectorLayer(stream_layer, "Streams", "ogr")
             elif isinstance(stream_layer, QgsVectorLayer):
                 layer = stream_layer
             else:
                 raise QgsProcessingException(self.tr('Invalid stream layer type'))
             
-            if not layer.isValid():
+            if not isinstance(layer, QgsVectorLayer) or not layer.isValid():
                 raise QgsProcessingException(self.tr('Invalid stream layer'))
             
             layer_provider = layer.dataProvider()
@@ -402,9 +524,9 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             # Add Strahler and Shreve order fields if they don't exist
             fields_to_add = []
             if layer.fields().indexFromName("Strahler") == -1:
-                fields_to_add.append(QgsField("Strahler", QVariant.Int))
+                fields_to_add.append(QgsField("Strahler", QMetaType.Type.Int))
             if layer.fields().indexFromName("Shreve") == -1:
-                fields_to_add.append(QgsField("Shreve", QVariant.Int))
+                fields_to_add.append(QgsField("Shreve", QMetaType.Type.Int))
             
             if fields_to_add:
                 layer_provider.addAttributes(fields_to_add)
