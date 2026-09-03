@@ -119,7 +119,7 @@ class CtdqRasterFunctions:
         return dem
 
     @staticmethod
-    def ctdq_raster_fillsinks(input_raster, feedback):
+    def ctdq_raster_fillsinks(input_raster, feedback, return_raster_path=False):
         class PriorityQueue:
             def __init__(self):
                 self.elements = []
@@ -383,5 +383,229 @@ class CtdqRasterFunctions:
         
         feedback.setProgress(100)
         
-        # Return the filled_dem array for further processing
+        if return_raster_path:
+            return temp_filled_path
+
+        # Preserve the original array-returning behavior for existing callers.
         return filled_dem
+
+    @staticmethod
+    def ctdq_raster_create_depression_mask(
+        input_raster,
+        filled_dem,
+        feedback,
+        minimum_depth=0.00001,
+    ):
+        """Create a GRASS depression map from a sink-filled DEM array."""
+        dem = CtdqRasterFunctions.ctdq_raster_asnumpy(input_raster, feedback)
+        if dem is None or filled_dem is None or dem.shape != filled_dem.shape:
+            feedback.reportError("Cannot create depression mask from incompatible rasters.")
+            return None
+
+        no_data_value = input_raster.dataProvider().sourceNoDataValue(1)
+        if no_data_value is None or no_data_value == 0:
+            no_data_value = -32567
+        valid_mask = (dem != no_data_value) & np.isfinite(dem) & np.isfinite(filled_dem)
+        depth = filled_dem.astype(np.float32) - dem.astype(np.float32)
+        depression_mask = np.where(
+            valid_mask & (depth > float(minimum_depth)),
+            1.0,
+            no_data_value,
+        ).astype(np.float32)
+
+        depression_count = int(np.count_nonzero(depression_mask == 1.0))
+        feedback.pushInfo(
+            f"Created depression mask with {depression_count} cells "
+            f"deeper than {minimum_depth:g}"
+        )
+        return CtdqRasterFunctions.ctdq_raster_fromNumpy(
+            depression_mask,
+            input_raster.width(),
+            input_raster.height(),
+            input_raster.extent(),
+            input_raster.crs(),
+            feedback,
+            no_data_value=no_data_value,
+        )
+
+    @staticmethod
+    def ctdq_raster_copy(input_path, output_path, feedback):
+        """Copy a generated raster to a Processing output destination."""
+        try:
+            output_dataset = gdal.Translate(output_path, input_path, format="GTiff")
+            if output_dataset is None:
+                feedback.reportError(f"Could not write raster output: {output_path}")
+                return None
+            output_dataset = None
+            return output_path
+        except Exception as error:
+            feedback.reportError(f"Could not copy raster output: {error}")
+            return None
+
+    @staticmethod
+    def ctdq_raster_breach_depressions(
+        input_raster,
+        feedback,
+        max_length=50,
+        max_elevation_decrement=0.0,
+        min_elevation_drop=0.0,
+    ):
+        """Breach local pits along bounded least-cost paths."""
+        dem = CtdqRasterFunctions.ctdq_raster_asnumpy(input_raster, feedback)
+        if dem is None:
+            return None
+
+        height, width = dem.shape
+        provider = input_raster.dataProvider()
+        no_data_value = provider.sourceNoDataValue(1)
+        if no_data_value is None or no_data_value == 0:
+            no_data_value = -32567
+
+        valid_mask = (dem != no_data_value) & np.isfinite(dem)
+        if not np.any(valid_mask):
+            feedback.reportError("No valid data cells found in raster!")
+            return None
+
+        max_length = max(1, int(max_length))
+        max_cost = float(max_elevation_decrement)
+        z_range = float(np.nanmax(dem[valid_mask]) - np.nanmin(dem[valid_mask]))
+        zdrop = float(min_elevation_drop) if min_elevation_drop > 0 else max(z_range * 1e-7, 1e-5)
+        directions = [
+            (-1, -1, 2 ** 0.5), (-1, 0, 1.0), (-1, 1, 2 ** 0.5),
+            (0, -1, 1.0), (0, 1, 1.0),
+            (1, -1, 2 ** 0.5), (1, 0, 1.0), (1, 1, 2 ** 0.5),
+        ]
+        breached_dem = dem.copy()
+        pits = []
+
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
+                if not valid_mask[y, x]:
+                    continue
+                elevation = breached_dem[y, x]
+                if all(
+                    not valid_mask[y + dy, x + dx]
+                    or breached_dem[y + dy, x + dx] >= elevation
+                    for dy, dx, _ in directions
+                ):
+                    pits.append((y, x))
+
+        feedback.pushInfo(
+            f"Detected {len(pits)} pit cells; maximum breach length: {max_length} cells"
+        )
+        solved = 0
+
+        for pit_index, (pit_y, pit_x) in enumerate(pits):
+            if feedback.isCanceled():
+                return None
+            pit_elevation = breached_dem[pit_y, pit_x]
+            if any(
+                valid_mask[pit_y + dy, pit_x + dx]
+                and breached_dem[pit_y + dy, pit_x + dx] < pit_elevation
+                for dy, dx, _ in directions
+            ):
+                continue
+
+            min_y = max(0, pit_y - max_length)
+            max_y = min(height - 1, pit_y + max_length)
+            min_x = max(0, pit_x - max_length)
+            max_x = min(width - 1, pit_x + max_length)
+            costs = {}
+            previous = {}
+            queue = []
+
+            for target_y in range(min_y, max_y + 1):
+                for target_x in range(min_x, max_x + 1):
+                    if not valid_mask[target_y, target_x]:
+                        continue
+                    distance = max(abs(target_y - pit_y), abs(target_x - pit_x))
+                    if distance == 0 or distance > max_length:
+                        continue
+                    target_elevation = breached_dem[target_y, target_x]
+                    local_cost = max(0.0, target_elevation - pit_elevation) + distance * zdrop
+                    if target_elevation + distance * zdrop < pit_elevation:
+                        costs[(target_y, target_x)] = 0.0
+                        heapq.heappush(queue, (0.0, target_y, target_x))
+                    elif max_cost <= 0.0 or local_cost <= max_cost:
+                        costs[(target_y, target_x)] = float("inf")
+
+            centre = (pit_y, pit_x)
+            costs[centre] = float("inf")
+            while queue:
+                cost, current_y, current_x = heapq.heappop(queue)
+                if cost != costs.get((current_y, current_x)):
+                    continue
+                if (current_y, current_x) == centre:
+                    break
+                for dy, dx, distance in directions:
+                    next_cell = (current_y + dy, current_x + dx)
+                    next_y, next_x = next_cell
+                    if next_cell not in costs:
+                        continue
+                    next_cost = cost + (
+                        max(0.0, breached_dem[current_y, current_x] - pit_elevation)
+                        + max(0.0, breached_dem[next_y, next_x] - pit_elevation)
+                    ) * 0.5 * distance
+                    if next_cost < costs[next_cell]:
+                        costs[next_cell] = next_cost
+                        previous[next_cell] = (current_y, current_x)
+                        heapq.heappush(queue, (next_cost, next_y, next_x))
+
+            if centre not in previous:
+                continue
+
+            path = []
+            cell = centre
+            while cell != (pit_y, pit_x):
+                path.append(cell)
+                cell = previous[cell]
+            previous_elevation = pit_elevation
+            for path_y, path_x in path:
+                breached_dem[path_y, path_x] = min(
+                    breached_dem[path_y, path_x], previous_elevation - zdrop
+                )
+                previous_elevation = breached_dem[path_y, path_x]
+            solved += 1
+
+            if pit_index % max(1, len(pits) // 100) == 0:
+                feedback.setProgress(int(15 + 70 * pit_index / max(1, len(pits))))
+
+        feedback.pushInfo(f"Breached {solved} of {len(pits)} detected pit cells")
+
+        geotransform = None
+        projection = None
+        source_path = provider.dataSourceUri()
+        try:
+            source_dataset = gdal.Open(source_path)
+            if source_dataset is not None:
+                geotransform = source_dataset.GetGeoTransform()
+                projection = source_dataset.GetProjection()
+                source_dataset = None
+        except Exception as error:
+            feedback.pushInfo(f"Could not read source raster metadata: {error}")
+        if geotransform is None:
+            extent = input_raster.extent()
+            geotransform = (
+                extent.xMinimum(), input_raster.rasterUnitsPerPixelX(), 0,
+                extent.yMaximum(), 0, -input_raster.rasterUnitsPerPixelY()
+            )
+        if not projection:
+            projection = input_raster.crs().toWkt()
+
+        import tempfile, uuid
+        output_path = os.path.join(
+            tempfile.gettempdir(), f"breached_raster_{uuid.uuid4().hex}.tif"
+        )
+        output_dataset = gdal.GetDriverByName("GTiff").Create(
+            output_path, width, height, 1, gdal.GDT_Float32
+        )
+        output_dataset.SetGeoTransform(geotransform)
+        output_dataset.SetProjection(projection)
+        output_band = output_dataset.GetRasterBand(1)
+        output_band.SetNoDataValue(float(no_data_value))
+        output_band.WriteArray(np.ascontiguousarray(breached_dem.astype(np.float32)))
+        output_band.FlushCache()
+        output_dataset = None
+        feedback.setProgress(100)
+        feedback.pushInfo(f"Breached raster written to: {output_path}")
+        return output_path

@@ -23,8 +23,10 @@ from qgis.core import (
     QgsField,
     QgsWkbTypes,
     QgsProcessingParameterVectorDestination,
+    QgsProcessingParameterRasterDestination,  # Import QgsProcessingParameterRasterDestination for raster output
     QgsProcessingParameterRasterLayer,  # Import QgsProcessingParameterRasterLayer for raster input
     QgsProcessingParameterNumber,  # Import QgsProcessingParameterNumber for numeric input
+    QgsProcessingParameterBoolean,
     QgsProcessingException,
     QgsProcessingUtils,
     Qgis,
@@ -63,11 +65,16 @@ class CatchmentsAndStreams(ctdqAlgoRun):
     INPUT_DEM = "INPUT_DEM"
     INPUT_THRESHOLD = "INPUT_THRESHOLD"
     INPUT_WATERSHED_THRESHOLD = "INPUT_WATERSHED_THRESHOLD"
+    IGNORE_DEPRESSIONS = "IGNORE_DEPRESSIONS"
+    IGNORE_SMALL_DEPRESSIONS = "ignoreSmallDepressions"
+    BREACH_MAX_LENGTH = "BREACH_MAX_LENGTH"
+    DEPRESSION_MIN_DEPTH = "DEPRESSION_MIN_DEPTH"
     SMOOTH_ITERATIONS = "SMOOTH_ITERATIONS"
     SMOOTH_OFFSET = "SMOOTH_OFFSET"
     OUTPUT_CATCHMENTS = "OUTPUT_CATCHMENTS"
     OUTPUT_STREAMS = "OUTPUT_STREAMS"
     OUTPUT_NETWORKS = "OUTPUT_NETWORKS"
+    OUTPUT_DEPRESSION_RASTER = "OUTPUT_DEPRESSION_RASTER"
 
     def name(self):
         return self.TOOL_NAME
@@ -111,6 +118,43 @@ class CatchmentsAndStreams(ctdqAlgoRun):
                 "Catchment Threshold",
                 type=QgsProcessingParameterNumber.Integer,
                 defaultValue=10000
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.IGNORE_DEPRESSIONS,
+                "Ignore Depressions",
+                defaultValue=True
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.IGNORE_SMALL_DEPRESSIONS,
+                "Ignore Small Depressions",
+                defaultValue=True
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.BREACH_MAX_LENGTH,
+                "Maximum Depression Breach Length (cells)",
+                type=QgsProcessingParameterNumber.Integer,
+                minValue=1,
+                maxValue=500,
+                defaultValue=50
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.DEPRESSION_MIN_DEPTH,
+                "Minimum Depression Depth",
+                type=QgsProcessingParameterNumber.Double,
+                minValue=0.0,
+                defaultValue=0.1
             )
         )
 
@@ -162,6 +206,15 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             )
         )
 
+        self.addParameter(
+            QgsProcessingParameterRasterDestination(
+                self.OUTPUT_DEPRESSION_RASTER,
+                "Output Depression Raster (optional)",
+                createByDefault=False,
+                defaultValue=None
+            )
+        )
+
     def processAlgorithm(
         self,
         parameters: dict[str, Any],
@@ -176,32 +229,123 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             input_dem = self.parameterAsRasterLayer(parameters, self.INPUT_DEM, context)
             input_threshold = self.parameterAsDouble(parameters, self.INPUT_THRESHOLD, context)
             input_watershed_threshold = self.parameterAsDouble(parameters, self.INPUT_WATERSHED_THRESHOLD, context)
+            ignore_depressions = self.parameterAsBool(parameters, self.IGNORE_DEPRESSIONS, context)
+            ignore_small_depressions = self.parameterAsBool(
+                parameters, self.IGNORE_SMALL_DEPRESSIONS, context
+            )
+            breach_max_length = self.parameterAsInt(parameters, self.BREACH_MAX_LENGTH, context)
+            depression_min_depth = self.parameterAsDouble(
+                parameters, self.DEPRESSION_MIN_DEPTH, context
+            )
             smooth_iterations = self.parameterAsInt(parameters, self.SMOOTH_ITERATIONS, context)
             smooth_offset = self.parameterAsDouble(parameters, self.SMOOTH_OFFSET, context)
-
+            depression_output = self.parameterAsOutputLayer(
+                parameters, self.OUTPUT_DEPRESSION_RASTER, context
+            )
+                
             # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
             # overall progress through the model
             feedback = QgsProcessingMultiStepFeedback(7, model_feedback)
 
-            # generate a fill direction raster using the DEM
-            
-            dem_filled = self._run_child_algorithm("grass7:r.fill.dir", {
-                'input': input_dem,
-                'output': QgsProcessing.TEMPORARY_OUTPUT,
-                'direction': QgsProcessing.TEMPORARY_OUTPUT,
-                'areas': QgsProcessing.TEMPORARY_OUTPUT,
-                'format': 0
-            }, context=context, feedback=feedback)['output']
+            if ignore_depressions:
+                dem_filled = input_dem
+                depression_raster = None
+                feedback.pushInfo(
+                    "Ignoring depressions; using the input DEM unchanged and skipping "
+                    "sink-map generation."
+                )
+            else:
+                if ignore_small_depressions:
+                    dem_filled = input_dem
+                    depression_source = input_dem
+                    feedback.pushInfo(
+                        "Ignoring small depressions; generating the depression map "
+                        "from the original DEM."
+                    )
+                else:
+                    # Breach local pits while preserving broad closed basins.
+                    feedback.pushInfo("Breaching small DEM depressions...")
+                    dem_filled = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_breach_depressions(
+                        input_dem,
+                        feedback,
+                        max_length=breach_max_length,
+                    )
+                    if not dem_filled or not os.path.exists(dem_filled):
+                        raise QgsProcessingException(
+                            f"Depression-breached DEM was not created: {dem_filled}"
+                        )
+                    depression_source = QgsRasterLayer(
+                        dem_filled, "Depression-breached DEM"
+                    )
+                    if not depression_source.isValid():
+                        raise QgsProcessingException(
+                            f"Depression-breached DEM cannot be opened: {dem_filled}"
+                        )
+                    feedback.pushInfo(
+                        f"Validated depression-breached DEM: {depression_source.width()} x "
+                        f"{depression_source.height()} cells"
+                    )
 
-            grass_watershed = self._run_child_algorithm("grass7:r.watershed", {
+                filled_dem = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_fillsinks(
+                    depression_source,
+                    feedback,
+                )
+                if filled_dem is None:
+                    raise QgsProcessingException("Could not create sink-filled DEM for depression mapping")
+                depression_raster = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_create_depression_mask(
+                    depression_source,
+                    filled_dem,
+                    feedback,
+                    depression_min_depth,
+                )
+
+                if not depression_raster or not os.path.exists(depression_raster):
+                    raise QgsProcessingException(
+                        f"Depression raster was not created: {depression_raster}"
+                    )
+                else:
+                    feedback.pushInfo(
+                        f"Created depression raster: {depression_raster}"
+                    )
+                
+                depression_layer = QgsRasterLayer(depression_raster, "Depressions")
+                if not depression_layer.isValid():
+                    raise QgsProcessingException(
+                        f"Depression raster cannot be opened: {depression_raster}"
+                    )
+                feedback.pushInfo(
+                    f"Validated depression raster: {depression_layer.width()} x "
+                    f"{depression_layer.height()} cells"
+                )
+                if depression_output:
+                    depression_output = ctdq_raster_functions.CtdqRasterFunctions.ctdq_raster_copy(
+                        depression_raster,
+                        depression_output,
+                        feedback,
+                    )
+                    if depression_output is None:
+                        raise QgsProcessingException(
+                            "Could not write the requested depression raster output"
+                        )
+
+            watershed_parameters = {
                 'elevation': dem_filled,
                 'accumulation': QgsProcessing.TEMPORARY_OUTPUT,
                 'drainage': QgsProcessing.TEMPORARY_OUTPUT,
                 'basin': QgsProcessing.TEMPORARY_OUTPUT,
                 'threshold': input_watershed_threshold,
                 '-s': True,
-                '-m': True
-            }, context=context, feedback=feedback)
+                '-m': True,
+            }
+            if depression_raster is not None:
+                watershed_parameters['depression'] = depression_raster
+
+            grass_watershed = self._run_child_algorithm(
+                "grass7:r.watershed",
+                watershed_parameters,
+                context=context,
+                feedback=feedback,
+            )
 
             grass_flow_accumulation = grass_watershed['accumulation']            
 
@@ -392,7 +536,8 @@ class CatchmentsAndStreams(ctdqAlgoRun):
             return {
                 self.OUTPUT_STREAMS: stream_dest_id,
                 self.OUTPUT_CATCHMENTS: catchments_dest_id,
-                self.OUTPUT_NETWORKS: networks_dest_id
+                self.OUTPUT_NETWORKS: networks_dest_id,
+                self.OUTPUT_DEPRESSION_RASTER: depression_output,
             }
         except Exception as e:
             raise QgsProcessingException(f"Error in {self.TOOL_NAME}: {e}")
