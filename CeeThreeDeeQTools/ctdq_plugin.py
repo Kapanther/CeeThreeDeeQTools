@@ -39,14 +39,36 @@ LOGGER = logging.getLogger(__name__)
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication, Qgis
 from .ctdq_provider import CTDQProvider
-from qgis.PyQt.QtWidgets import QAction, QMenu
+from qgis.PyQt.QtWidgets import QAction, QApplication, QMenu
 from qgis.PyQt.QtGui import QIcon, QDesktopServices
-from qgis.PyQt.QtCore import QUrl, QCoreApplication, QSettings, QTranslator, QLocale, Qt
+from qgis.PyQt.QtCore import QEvent, QObject, QUrl, QCoreApplication, QSettings, QTranslator, QLocale, Qt, QTimer
 
 cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
 if cmd_folder not in sys.path:
     sys.path.insert(0, cmd_folder)
+
+
+class _ElevationProfileRestoreFilter(QObject):
+    def __init__(self, plugin):
+        super().__init__(plugin.iface.mainWindow())
+        self.plugin = plugin
+        self._restore_pending = False
+
+    def eventFilter(self, watched, event):
+        if (
+            getattr(self.plugin, "_elevationRestoreActive", False)
+            and event.type() == QEvent.Type.ChildAdded
+            and not self._restore_pending
+        ):
+            self._restore_pending = True
+
+            def restore_once():
+                self._restore_pending = False
+                self.plugin._restoreElevationBackgroundRasters()
+
+            QTimer.singleShot(100, restore_once)
+        return False
 
 
 class CTDQPlugin(object):
@@ -173,6 +195,17 @@ class CTDQPlugin(object):
         self.dataConnectorAction.triggered.connect(self.toggleDataConnectorDock)
         self.menu.addAction(self.dataConnectorAction)
 
+        # Create the elevation profile background raster proof-of-concept action
+        self.elevationBackgroundRasterAction = QAction(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            self.tr("Add Elevation Background Raster (WIPONLY)"),
+            self.iface.mainWindow(),
+        )
+        self.elevationBackgroundRasterAction.triggered.connect(
+            self.openElevationBackgroundRasterDialog
+        )
+        self.menu.addAction(self.elevationBackgroundRasterAction)
+
         # Initialize dock widget references (created on first toggle)
         self.layersAdvancedDock = None
         self.dataConnectorDock = None
@@ -189,6 +222,10 @@ class CTDQPlugin(object):
             )
         )
         self.menu.addAction(self.helpAction)
+        self._elevationRestoreActive = True
+        self._elevationRestoreFilter = _ElevationProfileRestoreFilter(self)
+        QApplication.instance().installEventFilter(self._elevationRestoreFilter)
+        self._restoreElevationBackgroundRasters()
 
     def openValidationDialog(self):
         from .Tools.ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
@@ -384,6 +421,31 @@ class CTDQPlugin(object):
         # Keep a reference so the non-modal dialog is not garbage collected
         self.landXMLImportDialog = dialog
 
+    def openElevationBackgroundRasterDialog(self):
+        """Open the elevation profile background raster proof of concept."""
+        from .Tools.ctdq_addElevationBackgroundRaster import (
+            AddElevationBackgroundRasterDialog,
+            restore_persistent_overlays,
+        )
+
+        restore_persistent_overlays(self.iface)
+        dialog = AddElevationBackgroundRasterDialog(self.iface, self.iface.mainWindow())
+        dialog.show()
+        self.elevationBackgroundRasterDialog = dialog
+
+    def _restoreElevationBackgroundRasters(self):
+        if not getattr(self, "_elevationRestoreActive", False):
+            return
+        try:
+            from .Tools.ctdq_addElevationBackgroundRaster import restore_persistent_overlays
+            restore_persistent_overlays(self.iface)
+        except (ImportError, KeyError):
+            # Plugin Reloader can remove the package while a queued callback runs.
+            return
+
+    def eventFilter(self, watched, event):
+        return False
+
     def toggleLayersAdvancedDock(self, checked):
         """Toggle the Layers Advanced dock widget."""
         # Create the dock widget on first toggle if it doesn't exist
@@ -427,6 +489,20 @@ class CTDQPlugin(object):
         """
         Unloads the plugin and removes the provider from the processing registry.
         """
+        self._elevationRestoreActive = False
+        try:
+            restore_filter = getattr(self, "_elevationRestoreFilter", None)
+            if restore_filter is not None:
+                QApplication.instance().removeEventFilter(restore_filter)
+                restore_filter.deleteLater()
+            from qgis.gui import QgsElevationProfileCanvas
+            for canvas in self.iface.mainWindow().findChildren(QgsElevationProfileCanvas):
+                overlay = getattr(canvas, "_ctdq_elevation_background", None)
+                if overlay is not None:
+                    overlay.close_overlay()
+        except ImportError:
+            pass
+
         # Remove provider safely - check if it still exists
         try:
             if hasattr(self, 'provider') and self.provider is not None:
@@ -457,4 +533,5 @@ class CTDQPlugin(object):
         del self.landXMLImportAction
         del self.layersAdvancedAction
         del self.dataConnectorAction
+        del self.elevationBackgroundRasterAction
         del self.helpAction

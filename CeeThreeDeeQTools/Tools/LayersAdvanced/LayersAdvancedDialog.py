@@ -1000,7 +1000,7 @@ class LayersAdvancedDialog(QDockWidget):
             # Show multi-layer menu if we have multiple layers
             if len(layers) > 1:
                 menu = LayerContextMenu.create_multi_layer_menu(layers, self.iface)
-                menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
+                menu.exec(self.layer_tree.viewport().mapToGlobal(position))
                 # Refresh after any group operations
                 self.refresh_layers()
                 return
@@ -1023,7 +1023,7 @@ class LayersAdvancedDialog(QDockWidget):
                 rename_callback=lambda: self.start_rename_item(item),
                 debug_callback=self.log_debug
             )
-            menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
+            menu.exec(self.layer_tree.viewport().mapToGlobal(position))
         
         elif item_type == "group":
             # Group context menu
@@ -1039,7 +1039,7 @@ class LayersAdvancedDialog(QDockWidget):
             remove_action = menu.addAction(QIcon(":/images/themes/default/mActionRemoveLayer.svg"), "Remove Group")
             remove_action.triggered.connect(lambda: self.remove_group(group_name))
             
-            menu.exec_(self.layer_tree.viewport().mapToGlobal(position))
+            menu.exec(self.layer_tree.viewport().mapToGlobal(position))
     
     def show_header_context_menu(self, position):
         """Show context menu for column visibility control."""
@@ -1050,7 +1050,7 @@ class LayersAdvancedDialog(QDockWidget):
             if action.isCheckable():
                 action.triggered.connect(self.save_column_visibility)
         
-        menu.exec_(self.layer_tree.header().mapToGlobal(position))
+        menu.exec(self.layer_tree.header().mapToGlobal(position))
     
     def restore_column_visibility(self):
         """Restore column visibility from saved settings."""

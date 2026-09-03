@@ -39,7 +39,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $zipArchive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
 try {
-    $files = Get-ChildItem -Path $sourceFolder -Recurse -File
+    $files = Get-ChildItem -Path $sourceFolder -Recurse -File | Where-Object {
+        $_.FullName -notmatch '[\\/]__pycache__([\\/]|$)' -and
+        $_.Extension -notin @('.pyc', '.pyo')
+    }
     foreach ($file in $files) {
         # Preserve the plugin root folder in archive while forcing ZIP-standard separators.
         $relativePath = $file.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
