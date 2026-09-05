@@ -14,8 +14,8 @@
 		},
 		{
 			"label": "Package Release Zip",
-			"type": "shell",
-			"command": "powershell",
+			"type": "process",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
 			"args": [
 				"-NoProfile",
 				"-ExecutionPolicy",
@@ -25,6 +25,23 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "Run Bandit Security Scan",
+			"type": "shell",
+			"command": "C:\\Program Files\\QGIS 3.44.13\\bin\\python.exe",
+			"args": [
+				"-m",
+				"bandit",
+				"-r",
+				"CeeThreeDeeQTools",
+				"-c",
+				".bandit.yaml",
+				"-f",
+				"screen"
+			],
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

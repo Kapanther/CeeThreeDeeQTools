@@ -1,0 +1,22 @@
+# Bandit policy for the CeeThreeDee QTools plugin.
+# QGIS 4.x no longer bundles defusedxml, so XML blacklist rules are suppressed.
+skips:
+  - B313
+  - B314
+#  - B315
+#  - B316
+#  - B317
+#  - B318
+#  - B319
+#  - B320
+  - B405
+#  - B406
+#  - B407
+#  - B408
+#  - B409
+
+# These directories are not plugin source and should not be scanned.
+exclude_dirs:
+  - .git
+  - .vscode
+  - Releases

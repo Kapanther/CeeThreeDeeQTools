@@ -164,7 +164,10 @@ def restore_persistent_overlays(iface):
     layers = QgsProject.instance().mapLayers()
     for canvas in iface.mainWindow().findChildren(QgsElevationProfileCanvas):
         saved = overlays.get(_profile_key(canvas))
-        if saved is None or getattr(canvas, "_ctdq_elevation_background", None) is not None:
+        if (
+            not isinstance(saved, dict)
+            or getattr(canvas, "_ctdq_elevation_background", None) is not None
+        ):
             continue
         layer = layers.get(saved.get("layer_id"))
         if not isinstance(layer, QgsRasterLayer) or not layer.isValid():
@@ -180,8 +183,8 @@ def restore_persistent_overlays(iface):
             )
             overlay.layer = layer
             canvas._ctdq_elevation_background = overlay
-        except Exception:
-            continue
+        except (KeyError, RuntimeError, TypeError, ValueError):
+            pass
 
 
 def _raster_image(layer):

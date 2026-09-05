@@ -1,0 +1,9 @@
+- added new LANDXML import tool for
+surfaces/alignments/profiles/cogopoints
+- fixed catchments and streams tool to be more optimised for internal
+basins
+- added new Data Connector tool for clipping and shipping online
+streamed data sources
+- fixed QT compatibility
+- removed defusexml dependency (skipped rules in bandit check for
+defusedxml)
