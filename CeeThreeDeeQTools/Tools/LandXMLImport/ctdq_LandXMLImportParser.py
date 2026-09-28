@@ -3,7 +3,7 @@
 LandXML structure scanning and geometry parsing.
 
 Two-phase design:
-  1. ``scan_structure`` walks the file with ``iterparse`` and only records the
+    1. ``scan_structure`` walks the file with ``iterparse`` and only records the
      *names* of importable entities (alignments, profiles, point groups,
      surfaces, pipe networks). Heavy data payloads (surface point/face lists,
      individual CgPoints, etc.) are skipped so large files scan quickly.
@@ -58,6 +58,17 @@ def _float_attr(elem, name):
         return None
 
 
+def _offset_point(elem):
+    """Read a local CrossSectPnt as (offset, elevation)."""
+    if not elem.text:
+        return None
+    values = elem.text.split()
+    if len(values) < 2:
+        return None
+    try:
+        return float(values[0]), float(values[1])
+    except ValueError:
+        return None
 class LandXMLStructure:
     """Lightweight description of what a LandXML file contains."""
 
@@ -70,6 +81,9 @@ class LandXMLStructure:
         self.point_groups = []    # [{'name': str, 'count': int}]
         self.surfaces = []        # [{'name': str}]
         self.pipe_networks = []   # [{'name': str}]
+        self.feature_line_groups = []  # [{'name': str, 'count': int}]
+        self.parcels = []         # [{'name': str}]
+        self.corridors = []       # [{'name': str, 'alignment_refs': [str]}]
 
 
 class LandXMLParser:
@@ -92,6 +106,7 @@ class LandXMLParser:
         depth = 0
         cgpoint_count = 0
         current_point_group = None
+        current_feature_group = None
 
         context = ET.iterparse(file_path, events=('start', 'end'))
         for event, elem in context:
@@ -150,6 +165,26 @@ class LandXMLParser:
                     structure.surfaces.append({'name': elem.get('name', '(unnamed)')})
                 elif tag == 'PipeNetwork':
                     structure.pipe_networks.append({'name': elem.get('name', '(unnamed)')})
+                elif tag == 'PlanFeatures':
+                    current_feature_group = {
+                        'name': elem.get('name', '(unnamed)'),
+                        'count': 0,
+                    }
+                    structure.feature_line_groups.append(current_feature_group)
+                elif tag == 'PlanFeature' and current_feature_group is not None:
+                    current_feature_group['count'] += 1
+                elif tag == 'Parcel':
+                    structure.parcels.append({
+                        'name': elem.get('name', '(unnamed)'),
+                        'description': elem.get('desc', ''),
+                    })
+                elif tag == 'Roadway':
+                    refs = [value for value in elem.get('alignmentRefs', '').split()
+                            if value]
+                    structure.corridors.append({
+                        'name': elem.get('name', '(unnamed)'),
+                        'alignment_refs': refs,
+                    })
 
             else:  # end
                 if skip_depth and depth == skip_depth:
@@ -160,6 +195,8 @@ class LandXMLParser:
                     elif tag == 'CgPoints' and current_point_group is not None:
                         current_point_group['count'] = cgpoint_count
                         current_point_group = None
+                    elif tag == 'PlanFeatures':
+                        current_feature_group = None
                 depth -= 1
                 elem.clear()
 
@@ -196,6 +233,28 @@ class LandXMLParser:
                     LandXMLParser._parse_alignment_element(elem, curve_tolerance))
             elem.clear()
 
+        return results
+
+    @staticmethod
+    def parse_corridors(file_path, wanted_names=None):
+        """Parse Civil 3D Roadway records and their alignment references."""
+        wanted = set(wanted_names) if wanted_names is not None else None
+        results = []
+        context = ET.iterparse(file_path, events=('end',))
+        for _event, elem in context:
+            if _local(elem.tag) != 'Roadway':
+                continue
+            name = elem.get('name', '(unnamed)')
+            if wanted is None or name in wanted:
+                results.append({
+                    'name': name,
+                    'alignment_refs': [value for value in
+                                       elem.get('alignmentRefs', '').split()
+                                       if value],
+                    'sta_start': _float_attr(elem, 'staStart'),
+                    'sta_end': _float_attr(elem, 'staEnd'),
+                })
+            elem.clear()
         return results
 
     # ------------------------------------------------------------------
@@ -283,6 +342,204 @@ class LandXMLParser:
         return selected
 
     # ------------------------------------------------------------------
+    # Feature lines and parcels
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def parse_feature_lines(file_path, wanted_names=None,
+                            progress_callback=None):
+        """Parse 3D plan-feature line groups from LandXML."""
+        wanted = set(wanted_names) if wanted_names is not None else None
+        results = []
+        context = ET.iterparse(file_path, events=('end',))
+        for _event, elem in context:
+            if _local(elem.tag) != 'PlanFeatures':
+                continue
+            name = elem.get('name', '(unnamed)')
+            if wanted is None or name in wanted:
+                if progress_callback:
+                    progress_callback("Parsing feature lines '{0}'...".format(name), None)
+                results.append(LandXMLParser._parse_feature_line_group(elem, name))
+            elem.clear()
+        return results
+
+    @staticmethod
+    def _parse_feature_line_group(elem, name):
+        group = {'name': name, 'features': []}
+        for node in elem:
+            if _local(node.tag) != 'PlanFeature':
+                continue
+            points = []
+            for child in node:
+                if _local(child.tag) != 'CoordGeom':
+                    continue
+                points = LandXMLParser._parse_3d_coordgeom(child)
+            properties = {
+                prop.get('label', ''): prop.get('value', '')
+                for feature in node if _local(feature.tag) == 'Feature'
+                for prop in feature if _local(prop.tag) == 'Property'
+            }
+            if len(points) >= 2:
+                group['features'].append({
+                    'name': node.get('name', ''),
+                    'points': points,
+                    'code': next((feature.get('code', '') for feature in node
+                                  if _local(feature.tag) == 'Feature'), ''),
+                    'site': properties.get('site', ''),
+                    'layer': properties.get('layer', ''),
+                    'style': properties.get('style', ''),
+                })
+        return group
+
+    @staticmethod
+    def parse_parcels(file_path, wanted_names=None, progress_callback=None):
+        """Parse parcel boundaries as closed 3D vertex rings."""
+        wanted = set(wanted_names) if wanted_names is not None else None
+        results = []
+        context = ET.iterparse(file_path, events=('end',))
+        for _event, elem in context:
+            if _local(elem.tag) != 'Parcel':
+                continue
+            name = elem.get('name', '(unnamed)')
+            if wanted is None or name in wanted:
+                if progress_callback:
+                    progress_callback("Parsing parcel '{0}'...".format(name), None)
+                points = []
+                for child in elem:
+                    if _local(child.tag) == 'CoordGeom':
+                        points = LandXMLParser._parse_3d_coordgeom(child)
+                if len(points) >= 3:
+                    if points[0] != points[-1]:
+                        points.append(points[0])
+                    results.append({
+                        'name': name,
+                        'description': elem.get('desc', ''),
+                        'area': _float_attr(elem, 'area'),
+                        'points': points,
+                    })
+            elem.clear()
+        return results
+
+    # ------------------------------------------------------------------
+    # Pipe networks
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def parse_pipe_networks(file_path, wanted_names=None,
+                            progress_callback=None):
+        """Parse selected pipe networks and their endpoint structures.
+
+        Null structures are retained in the internal structure lookup so pipes
+        can be positioned, but are marked ``visible`` false for the importer.
+        """
+        wanted = set(wanted_names) if wanted_names is not None else None
+        results = []
+
+        context = ET.iterparse(file_path, events=('end',))
+        for _event, elem in context:
+            if _local(elem.tag) != 'PipeNetwork':
+                continue
+            name = elem.get('name', '(unnamed)')
+            if wanted is None or name in wanted:
+                if progress_callback:
+                    progress_callback("Parsing pipe network '{0}'...".format(name), None)
+                results.append(LandXMLParser._parse_pipe_network_element(elem, name))
+            elem.clear()
+        return results
+
+    @staticmethod
+    def _parse_pipe_network_element(elem, name):
+        network = {
+            'name': name,
+            'type': elem.get('pipeNetType', ''),
+            'description': elem.get('desc', ''),
+            'structures': [],
+            'structure_lookup': {},
+            'pipes': [],
+        }
+
+        for child in elem:
+            tag = _local(child.tag)
+            if tag == 'Structs':
+                for node in child:
+                    if _local(node.tag) != 'Struct':
+                        continue
+                    center = None
+                    inverts = []
+                    invert_records = []
+                    structure_type = ''
+                    dimensions = {}
+                    for part in node:
+                        part_tag = _local(part.tag)
+                        if part_tag == 'Center':
+                            center = _coords(part.text)
+                        elif part_tag == 'Invert':
+                            elev = _float_attr(part, 'elev')
+                            if elev is not None:
+                                inverts.append(elev)
+                                invert_records.append({
+                                    'elev': elev,
+                                    'ref_pipe': part.get('refPipe', ''),
+                                    'flow_dir': part.get('flowDir', ''),
+                                })
+                        elif part_tag in ('InletStruct', 'OutletStruct',
+                                          'CircStruct', 'RectStruct'):
+                            if part_tag in ('InletStruct', 'OutletStruct'):
+                                structure_type = part_tag
+                            else:
+                                structure_type = part_tag
+                                dimensions = {
+                                    key: _float_attr(part, key)
+                                    for key in ('diameter', 'length', 'width', 'thickness')
+                                }
+                    struct = {
+                        'name': node.get('name', '(unnamed)'),
+                        'description': node.get('desc', ''),
+                        'rim': _float_attr(node, 'elevRim'),
+                        'sump': _float_attr(node, 'elevSump'),
+                        'x': center[0] if center else None,
+                        'y': center[1] if center else None,
+                        'inverts': inverts,
+                        'invert_records': invert_records,
+                        'invert': inverts[0] if inverts else None,
+                        'type': structure_type or 'Structure',
+                        'dimensions': dimensions,
+                        'visible': not (
+                            node.get('name', '').lower().startswith(
+                                ('startnullstruct', 'endnullstruct'))
+                            or node.get('desc', '').strip().lower() == 'null structure'
+                        ),
+                    }
+                    network['structure_lookup'][struct['name']] = struct
+                    if struct['visible']:
+                        network['structures'].append(struct)
+            elif tag == 'Pipes':
+                for node in child:
+                    if _local(node.tag) != 'Pipe':
+                        continue
+                    pipe_type = ''
+                    dimensions = {}
+                    for part in node:
+                        part_tag = _local(part.tag)
+                        if part_tag in ('RectPipe', 'CircPipe'):
+                            pipe_type = part_tag
+                            dimensions = {
+                                key: _float_attr(part, key)
+                                for key in ('diameter', 'height', 'width', 'thickness')
+                            }
+                    network['pipes'].append({
+                        'name': node.get('name', '(unnamed)'),
+                        'description': node.get('desc', ''),
+                        'start': node.get('refStart', ''),
+                        'end': node.get('refEnd', ''),
+                        'length': _float_attr(node, 'length'),
+                        'slope': _float_attr(node, 'slope'),
+                        'type': pipe_type or 'Pipe',
+                        'dimensions': dimensions,
+                    })
+        return network
+
+    # ------------------------------------------------------------------
     # Surfaces
     # ------------------------------------------------------------------
 
@@ -366,6 +623,7 @@ class LandXMLParser:
             'description': elem.get('desc', ''),
             'points': [],
             'profiles': [],
+            'cross_sections': [],
             'warnings': [],
         }
 
@@ -390,7 +648,55 @@ class LandXMLParser:
                             'kind': 'surf',
                             'elements': LandXMLParser._parse_profsurf(sub),
                         })
+            elif tag == 'CrossSects':
+                alignment['cross_sections'] = (
+                    LandXMLParser._parse_cross_sections(child))
         return alignment
+
+    @staticmethod
+    def _parse_cross_sections(cross_sections):
+        sections = []
+        for section in cross_sections:
+            if _local(section.tag) != 'CrossSect':
+                continue
+            station = _float_attr(section, 'sta')
+            if station is None:
+                continue
+            links = []
+            section_points = []
+            for surface in section:
+                if _local(surface.tag) != 'DesignCrossSectSurf':
+                    continue
+                points = [node for node in surface
+                          if _local(node.tag) == 'CrossSectPnt']
+                if len(points) < 2:
+                    continue
+                start = _offset_point(points[0])
+                end = _offset_point(points[1])
+                if start is None or end is None:
+                    continue
+                dx = end[0] - start[0]
+                grade = None if abs(dx) <= 1e-12 else (
+                    (end[1] - start[1]) / dx * 100.0)
+                links.append({
+                    'code': surface.get('name', ''),
+                    'start_offset_x': start[0],
+                    'start_offset_y': start[1],
+                    'end_offset_x': end[0],
+                    'end_offset_y': end[1],
+                    'grade': grade,
+                    'start_code': points[0].get('code', ''),
+                    'end_code': points[1].get('code', ''),
+                })
+                section_points.extend((
+                    {'offset_x': start[0], 'offset_y': start[1],
+                     'code': points[0].get('code', '')},
+                    {'offset_x': end[0], 'offset_y': end[1],
+                     'code': points[1].get('code', '')},
+                ))
+            sections.append({'station': station, 'links': links,
+                             'points': section_points})
+        return sections
 
     @staticmethod
     def _parse_coordgeom(coordgeom, curve_tolerance, warnings):
@@ -424,12 +730,17 @@ class LandXMLParser:
                     append(nodes.get('Start'))
                     append(nodes.get('End'))
             elif tag == 'Spiral':
-                # TODO: true clothoid densification
-                warnings.append(
-                    "Spiral approximated by Start/PI/End vertices (WIP).")
-                append(nodes.get('Start'))
-                append(nodes.get('PI'))
-                append(nodes.get('End'))
+                spiral = LandXMLParser._densify_spiral(
+                    element, nodes.get('Start'), nodes.get('PI'),
+                    nodes.get('End'), curve_tolerance)
+                if spiral:
+                    for pt in spiral:
+                        append(pt)
+                else:
+                    warnings.append(
+                        "Spiral could not be densified; using chord instead.")
+                    append(nodes.get('Start'))
+                    append(nodes.get('End'))
             elif tag == 'IrregularLine':
                 append(nodes.get('Start'))
                 for node in element:
@@ -439,6 +750,75 @@ class LandXMLParser:
                             append(_coords(values[i] + ' ' + values[i + 1]))
                 append(nodes.get('End'))
 
+        return points
+
+    @staticmethod
+    def _parse_3d_coordgeom(coordgeom):
+        """Read ordered 3D vertices from line-based CoordGeom content."""
+        points = []
+        for element in coordgeom:
+            if _local(element.tag) != 'Line':
+                continue
+            nodes = {_local(node.tag): _coords(node.text) for node in element}
+            for key in ('Start', 'End'):
+                point = nodes.get(key)
+                if point is None:
+                    continue
+                vertex = (point[0], point[1], point[2] or 0.0)
+                if not points or vertex != points[-1]:
+                    points.append(vertex)
+        return points
+
+    @staticmethod
+    def _densify_spiral(element, start, pi, end, tolerance):
+        """Densify a LandXML clothoid using its linearly varying curvature."""
+        if not start or not end:
+            return None
+
+        length = _float_attr(element, 'length')
+        if length is None or length <= 0:
+            return None
+
+        def radius(name):
+            raw = element.get(name)
+            if raw is None or str(raw).strip().upper() in ('INF', 'INFINITY'):
+                return 0.0
+            try:
+                value = abs(float(raw))
+            except ValueError:
+                return None
+            return 0.0 if value <= 1e-12 else 1.0 / value
+
+        curvature_start = radius('radiusStart')
+        curvature_end = radius('radiusEnd')
+        if curvature_start is None or curvature_end is None:
+            return None
+
+        tangent_point = pi or end
+        dx = tangent_point[0] - start[0]
+        dy = tangent_point[1] - start[1]
+        if math.hypot(dx, dy) <= 1e-12:
+            return None
+        heading = math.atan2(dy, dx)
+        rotation = -1.0 if element.get('rot', 'ccw').lower().startswith('cw') else 1.0
+        tolerance = max(float(tolerance or 0.01), 1e-6)
+        maximum_curvature = max(curvature_start, curvature_end)
+        step = (math.sqrt(8.0 * tolerance / maximum_curvature)
+            if maximum_curvature > 0 else length)
+        step = max(step, 0.05)
+        segments = min(max(int(math.ceil(length / step)), 8), 500)
+        delta = curvature_end - curvature_start
+        points = [start]
+        x, y = start[0], start[1]
+        step_length = length / segments
+        for index in range(segments):
+            s = (index + 0.5) * step_length
+            angle = (heading + rotation * (
+                curvature_start * s + delta * s * s / (2.0 * length)))
+            x += math.cos(angle) * step_length
+            y += math.sin(angle) * step_length
+            points.append((x, y))
+        points[-1] = (end[0], end[1])
         return points
 
     @staticmethod

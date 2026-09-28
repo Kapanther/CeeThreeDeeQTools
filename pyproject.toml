@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = [
+    "CeeThreeDeeQTools.Tools.LandXMLImport.ctdq_LandXMLImportParser",
+    "CeeThreeDeeQTools.Tools.LandXMLImport.ctdq_LandXMLVerticalProfile",
+]
+
+[tool.coverage.report]
+skip_empty = true
+show_missing = true

@@ -145,11 +145,13 @@ class DataConnectorDialog(QDockWidget):
         layers = self._connected_layers_by_type(raster=False)
         if not layers:
             QMessageBox.information(
-                self, "Data Connector", "There are no connected vector layers to refresh."
+                self, "Data Connector", self._nothing_to_refresh_message("vector")
             )
             return
 
-        dialog = RefreshLayersDialog(len(layers), self, title="Refresh Vector Layers")
+        dialog = RefreshLayersDialog(
+            [layer.name() for layer in layers], self, title="Refresh Vector Layers"
+        )
         if not dialog.exec():
             return
 
@@ -198,12 +200,12 @@ class DataConnectorDialog(QDockWidget):
         layers = self._connected_layers_by_type(raster=True)
         if not layers:
             QMessageBox.information(
-                self, "Data Connector", "There are no connected raster layers to refresh."
+                self, "Data Connector", self._nothing_to_refresh_message("raster")
             )
             return
 
         dialog = RefreshLayersDialog(
-            len(layers),
+            [layer.name() for layer in layers],
             self,
             title="Refresh Raster Layers",
             show_zoom=True,
@@ -252,10 +254,21 @@ class DataConnectorDialog(QDockWidget):
         self.refresh_layers()
 
     def _connected_layers_by_type(self, raster: bool) -> list:
-        return [
+        """Selected connected layers of the given type, or all of them when nothing is selected."""
+        layers = [
             layer for layer in DataConnectorLogic.get_connected_layers()
             if (layer.type() == QgsMapLayer.LayerType.RasterLayer) == raster
         ]
+
+        selected_ids = set(self.get_selected_layer_ids())
+        if selected_ids:
+            return [layer for layer in layers if layer.id() in selected_ids]
+        return layers
+
+    def _nothing_to_refresh_message(self, kind: str) -> str:
+        if self.get_selected_layer_ids():
+            return f"None of the selected layers are connected {kind} layers."
+        return f"There are no connected {kind} layers to refresh."
 
     def _make_progress(self, message, title):
         """Create a modal progress dialog and a callback that drives it."""

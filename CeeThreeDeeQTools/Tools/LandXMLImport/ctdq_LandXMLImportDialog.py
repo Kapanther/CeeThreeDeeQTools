@@ -5,8 +5,7 @@ Dialog for importing LandXML (Civil 3D) data into QGIS.
 Workflow: browse to a LandXML file -> Read (structure only) -> tick the
 entities to import -> choose source/target CRS -> Import.
 
-Only Alignments (horizontal geometry) and their Profiles are implemented;
-Points, Surfaces and Pipe Networks are listed but disabled (WIP).
+Alignments, profiles, points, surfaces and pipe networks can be imported.
 """
 
 import os
@@ -393,7 +392,9 @@ class LandXMLImportDialog(QDialog):
                 self.structure.application or "unknown"))
         self.import_button.setEnabled(bool(
             self.structure.alignments or self.structure.surfaces
-            or self.structure.point_groups))
+            or self.structure.point_groups or self.structure.pipe_networks
+            or self.structure.feature_line_groups or self.structure.parcels
+            or self.structure.corridors))
         if not self.output_memory_radio.isChecked():
             self._suggest_output_path()
 
@@ -417,12 +418,14 @@ class LandXMLImportDialog(QDialog):
             return
 
         (alignment_names, profile_keys, surface_names,
-         point_group_keys) = self._collect_selection()
+         point_group_keys, pipe_network_names, feature_line_group_names,
+         parcel_names, corridor_names) = self._collect_selection()
         if not (alignment_names or profile_keys or surface_names
-                or point_group_keys):
+                or point_group_keys or pipe_network_names
+                or feature_line_group_names or parcel_names or corridor_names):
             QMessageBox.information(
                 self, "LandXML Import",
-                "Tick at least one alignment, profile, surface or point group.")
+                "Tick at least one import item.")
             return
 
         source_crs = self.source_crs_selector.crs()
@@ -468,6 +471,10 @@ class LandXMLImportDialog(QDialog):
                 surface_names=surface_names,
                 include_hidden_faces=self.hidden_faces_check.isChecked(),
                 point_group_keys=point_group_keys,
+                pipe_network_names=pipe_network_names,
+                feature_line_group_names=feature_line_group_names,
+                parcel_names=parcel_names,
+                corridor_names=corridor_names,
                 generate_contours=self.contours_check.isChecked(),
                 minor_interval=self.minor_interval_spin.value(),
                 major_interval=self.major_interval_spin.value(),
@@ -582,10 +589,46 @@ class LandXMLImportDialog(QDialog):
             child.setData(0, ROLE_DATA, surface['name'])
         surfaces_root.setExpanded(True)
 
-        networks_root = self._add_category("Pipe Networks", len(structure.pipe_networks),
-                                           wip=True)
+        networks_root = self._add_category("Pipe Networks", len(structure.pipe_networks))
         for network in structure.pipe_networks:
-            self._add_disabled_child(networks_root, network['name'], "pipe network")
+            child = QTreeWidgetItem(networks_root)
+            child.setText(0, network['name'])
+            child.setText(1, "Pipes and structures")
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.CheckState.Checked)
+            child.setData(0, ROLE_KIND, 'pipenetwork')
+            child.setData(0, ROLE_DATA, network['name'])
+
+        feature_root = self._add_category(
+            "Feature Lines", len(structure.feature_line_groups))
+        for feature_group in structure.feature_line_groups:
+            child = QTreeWidgetItem(feature_root)
+            child.setText(0, feature_group['name'])
+            child.setText(1, "{0} feature line(s)".format(feature_group['count']))
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.CheckState.Checked)
+            child.setData(0, ROLE_KIND, 'featurelinegroup')
+            child.setData(0, ROLE_DATA, feature_group['name'])
+
+        parcels_root = self._add_category("Parcels", len(structure.parcels))
+        for parcel in structure.parcels:
+            child = QTreeWidgetItem(parcels_root)
+            child.setText(0, parcel['name'])
+            child.setText(1, "Parcel boundary")
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.CheckState.Checked)
+            child.setData(0, ROLE_KIND, 'parcel')
+            child.setData(0, ROLE_DATA, parcel['name'])
+
+        corridors_root = self._add_category("Corridors", len(structure.corridors))
+        for corridor in structure.corridors:
+            child = QTreeWidgetItem(corridors_root)
+            child.setText(0, corridor['name'])
+            child.setText(1, "Cross sections and feature lines")
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.CheckState.Checked)
+            child.setData(0, ROLE_KIND, 'corridor')
+            child.setData(0, ROLE_DATA, corridor['name'])
 
         self.tree.blockSignals(False)
 
@@ -625,6 +668,10 @@ class LandXMLImportDialog(QDialog):
         profile_keys = []
         surface_names = []
         point_group_keys = []
+        pipe_network_names = []
+        feature_line_group_names = []
+        parcel_names = []
+        corridor_names = []
         for i in range(self.tree.topLevelItemCount()):
             root = self.tree.topLevelItem(i)
             for j in range(root.childCount()):
@@ -639,6 +686,22 @@ class LandXMLImportDialog(QDialog):
                     if checked:
                         point_group_keys.append(item.data(0, ROLE_DATA))
                     continue
+                if kind == 'pipenetwork':
+                    if checked:
+                        pipe_network_names.append(item.data(0, ROLE_DATA))
+                    continue
+                if kind == 'featurelinegroup':
+                    if checked:
+                        feature_line_group_names.append(item.data(0, ROLE_DATA))
+                    continue
+                if kind == 'parcel':
+                    if checked:
+                        parcel_names.append(item.data(0, ROLE_DATA))
+                    continue
+                if kind == 'corridor':
+                    if checked:
+                        corridor_names.append(item.data(0, ROLE_DATA))
+                    continue
                 if kind != 'alignment':
                     continue
                 if checked:
@@ -647,4 +710,6 @@ class LandXMLImportDialog(QDialog):
                     profile = item.child(k)
                     if profile.checkState(0) == Qt.CheckState.Checked:
                         profile_keys.append(profile.data(0, ROLE_DATA))
-        return alignment_names, profile_keys, surface_names, point_group_keys
+        return (alignment_names, profile_keys, surface_names,
+            point_group_keys, pipe_network_names, feature_line_group_names,
+            parcel_names, corridor_names)

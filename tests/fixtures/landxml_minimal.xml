@@ -1,0 +1,848 @@
+<?xml version="1.0"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd" date="2026-09-28" time="22:20:01" version="1.2" language="English" readOnly="false">
+	<Units>
+		<Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" diameterUnit="millimeter" angularUnit="decimal degrees" directionUnit="decimal degrees"></Metric>
+	</Units>
+	<Project name="D:\ceethreedee\Testing\CeeThreeDeeQTools\LandXMLimport\LANDXMLimport.dwg"></Project>
+	<Application name="Autodesk Civil 3D" desc="Civil 3D" manufacturer="Autodesk, Inc." version="2027" manufacturerURL="www.autodesk.com/civil" timeStamp="2026-09-28T22:20:01"></Application>
+	<CgPoints>
+		<CgPoint name="1" code="TESTPIT">6954376.1519601373 501794.674790395307 0.</CgPoint>
+		<CgPoint name="2" code="TESTPIT">6954380.468366884626 501812.152218809235 0.</CgPoint>
+		<CgPoint name="3" code="TESTPIT">6954392.389867667109 501824.694844697253 0.</CgPoint>
+		<CgPoint name="4" code="TESTPIT">6954397.733989191242 501813.797153391992 0.</CgPoint>
+		<CgPoint name="5" code="TESTPIT">6954398.761705139652 501803.310696343658 0.</CgPoint>
+		<CgPoint name="6" code="TESTPIT">6954392.389867667109 501797.347808786668 0.</CgPoint>
+		<CgPoint name="7" code="TESTPIT">6954367.930234894156 501789.739986646979 0.</CgPoint>
+		<CgPoint name="8" code="TESTPIT">6954356.008734111674 501794.469173878082 0.</CgPoint>
+		<CgPoint name="9" code="BOREHOLE">6954402.050394768827 501832.302666836942 0.</CgPoint>
+		<CgPoint name="10" code="BOREHOLE">6954406.777887426317 501823.255526631721 0.</CgPoint>
+		<CgPoint name="11" code="BOREHOLE">6954410.066577055492 501810.50728422642 0.</CgPoint>
+		<CgPoint name="12" code="BOREHOLE">6954408.833318152465 501799.198359886708 0.</CgPoint>
+		<CgPoint name="13" code="BOREHOLE">6954404.105826664716 501791.590537747019 0.</CgPoint>
+		<CgPoint name="14" code="BOREHOLE">6954399.378334006295 501786.038884446956 0.</CgPoint>
+		<CgPoint name="15" code="BOREHOLE">6954395.884101421572 501783.365864833118 0.</CgPoint>
+	</CgPoints>
+	<CgPoints name="PointGroup01Test">
+		<CgPoint pntRef="9"></CgPoint>
+		<CgPoint pntRef="10"></CgPoint>
+		<CgPoint pntRef="11"></CgPoint>
+		<CgPoint pntRef="12"></CgPoint>
+		<CgPoint pntRef="13"></CgPoint>
+		<CgPoint pntRef="14"></CgPoint>
+		<CgPoint pntRef="15"></CgPoint>
+	</CgPoints>
+	<CgPoints name="PointGroup02Test">
+		<CgPoint pntRef="1"></CgPoint>
+		<CgPoint pntRef="2"></CgPoint>
+		<CgPoint pntRef="3"></CgPoint>
+		<CgPoint pntRef="4"></CgPoint>
+		<CgPoint pntRef="5"></CgPoint>
+		<CgPoint pntRef="6"></CgPoint>
+		<CgPoint pntRef="7"></CgPoint>
+		<CgPoint pntRef="8"></CgPoint>
+	</CgPoints>
+	<Alignments name="">
+		<Alignment name="CenterLineWithSpiralTest" length="37.64641915651" staStart="0." desc="">
+			<CoordGeom>
+				<Line dir="273.796027584621" length="9.170844369523">
+					<Start>6954355.556300704367 501791.793609721644</Start>
+					<End>6954346.405576610006 501792.400762913923</End>
+				</Line>
+				<Spiral length="5." radiusEnd="5.317114354446" radiusStart="INF" rot="ccw" spiType="clothoid" theta="26.939320698065" totalY="0.771345703559" totalX="4.89059098855" tanLong="3.372768099786" tanShort="1.702574672682">
+					<Start>6954346.405576610006 501792.400762913923</Start>
+					<PI>6954343.040208159015 501792.624056084722</PI>
+					<End>6954341.576782008633 501793.494196543528</End>
+				</Spiral>
+				<Line dir="300.735348279792" length="11.204492129547">
+					<Start>6954341.576782008633 501793.494196543528</Start>
+					<End>6954331.946104981937 501799.220513325592</End>
+				</Line>
+				<Curve rot="cw" chord="2.430896019935" crvType="arc" delta="28.137926413504" dirEnd="272.597421869025" dirStart="300.73534828253" external="0.154618780882" length="2.455497302998" midOrd="0.149980810856" radius="5." tangent="1.253034227873">
+					<Start>6954331.946104981937 501799.220513325592</Start>
+					<Center>6954329.390738475136 501794.92282766744</Center>
+					<End>6954329.617328662425 501799.917690717324</End>
+					<PI>6954330.869075535797 501799.860905665264</PI>
+				</Curve>
+				<Line dir="272.597421869059" length="9.815585354442">
+					<Start>6954329.617328662425 501799.917690717324</Start>
+					<End>6954319.811827742495 501800.362513782806</End>
+				</Line>
+			</CoordGeom>
+			<CrossSects>
+				<CrossSect sta="0." name="0.00">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-4.778649682632 -0.966216560876</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">4.632950124684 -0.917650041558</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="9.170844369523" name="9.17">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.915778939919 -0.345259646637</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">3.473219682132 -0.531073227372</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="10." name="10.00">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.742062210974 -0.287354070316</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">3.359852621867 -0.493284207265</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="14.170844369523" name="14.17">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.357893903738 -0.1592979679</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.375232110576 -0.165077370167</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="17.068762345508" name="17.07">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.046355599423 -0.055451866541</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.025816541868 -0.048605513978</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="19.068762345508" name="19.07">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.049689582218 -0.023436805865</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.01260260468 -0.044200868365</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="20." name="20.00">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.235662068132 0.038554022832</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.017576580263 -0.034141139826</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="25.37533649907" name="25.38">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.149453408488 -0.089817802912</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.011909701591 -0.043969900675</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="26.603085150569" name="26.60">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.113820495861 -0.077940165256</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.074418748368 -0.064806249396</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="27.830833802068" name="27.83">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.12318398937 0.001061329791</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.098419157817 -0.07280638593</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="29.728171730687" name="29.73">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.359283560291 0.079761186759</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.022452066516 -0.032515977833</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="30." name="30.00">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.363299013443 0.081099671149</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.067014116233 -0.062338038742</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="31.728171730687" name="31.73">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.252948001296 0.04431600044</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.042411009319 -0.054137003112</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="32.565999180518" name="32.57">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.359519205079 0.079839735014</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.005435986739 -0.038188004405</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+				<CrossSect sta="33.614073685044" name="33.61">
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">-2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>-2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">-2.518997629756 0.132999209919</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>0. 0.</CrossSectPnt>
+						<CrossSectPnt code="P2">2. -0.04</CrossSectPnt>
+					</DesignCrossSectSurf>
+					<DesignCrossSectSurf name="Top">
+						<CrossSectPnt>2. -0.04</CrossSectPnt>
+						<CrossSectPnt code="P2">2.342447461488 -0.154149153828</CrossSectPnt>
+					</DesignCrossSectSurf>
+				</CrossSect>
+			</CrossSects>
+			<Profile name="CenterLineWithSpiralTest">
+				<ProfSurf name="SurveyTest" state="existing">
+					<PntList2D>0. 15.902147483225 0.492089135885 15.949451267248 0.868769667876 15.897811317155 1.068745704584 15.84516449932 1.092996517628 15.844374766887 1.412178530625 15.808639971894 1.747003424377 15.821922413592 1.748933095666 15.82208821652 1.75095223144 15.822257555684 1.987949724753 15.849172547819 2.939084724813 15.886507133563 3.633822515616 15.897131571619 3.898668898337 15.910362526468 3.963559543288 15.91297703774 4.001636755611 15.916616633571 4.404974641104 15.970204266174 4.620801957759 15.972209918213 4.670707573496 15.972216566009 4.761243858246 15.97783395066 4.881553520688 15.980714236547 5.050027101827 15.968999999994 5.153308795542 15.982523970487 5.245549276384 15.985642531803 5.328670940018 16.000165787994 5.574018976613 16.001429918594 5.829329094114 16.007999999989 5.891946206676 16.012814603414 6.03007578857 16.023548711223 6.164122030204 16.028957671493 6.281542357045 16.045481670652 6.400175350358 16.049591986415 6.510878606664 16.053586669224 6.728365804855 16.045440076294 6.802238117574 16.053848000265 6.885813572795 16.07269957122 6.967217879821 16.068238229355 7.114228906981 16.079845379952 7.465413998059 16.139835063313 7.480302211561 16.141833251122 7.879593988934 16.232042738495 7.914842016711 16.27086919108 8.273024814775 16.324123829029 8.916699584489 16.351674882656 9.170844369523 16.347864114858 9.332134692104 16.345449268765 9.493425014684 16.343056130354 9.654715337265 16.340706414233 9.816005659846 16.338421848315 9.977295982426 16.336224179802 10.138586305007 16.334135180193 10.299876627588 16.332176648897 10.461166950168 16.330370415485 10.622457272749 16.32873833996 10.78374759533 16.327302310806 10.94503791791 16.326084240587 11.106328240491 16.325106058715 11.267618563072 16.324389700967 11.428908885652 16.323957095834 11.590199208233 16.323830146773 11.751489530813 16.324030710453 11.912779853394 16.324580570895 12.074070175975 16.325501408517 12.235360498555 16.326814764511 12.396650821136 16.328541999741 12.557941143717 16.33070424831 12.719231466297 16.33332236511 12.880521788878 16.336416867561 13.041812111459 16.340007870877 13.203102434039 16.344115017112 13.36439275662 16.34875739731 13.525683079201 16.353953467066 13.686973401781 16.359720955272 13.798131678407 16.364101261139 13.848263724362 16.367951966995 14.009554046943 16.380057076731 14.170844369523 16.391858343431 17.606540349587 16.639858313625 18.56921828542 16.677606164203 18.952614293707 16.691286035751 19.042758456439 16.690023272522 19.16109605842 16.696947388937 19.301817423134 16.709354155716 19.500463306619 16.71788657528 21.079415791549 16.913596861044 21.138111416473 16.908857319121 21.173835549018 16.909705700904 21.302133574681 16.913171254439 21.453777084758 16.927032504827 21.715827801402 16.88327611074 22.049684486576 16.80617135656 22.356486149846 16.814856654725 22.429525371274 16.801617925959 22.737376856838 16.812611395756 22.870548606349 16.805795520321 22.941008381786 16.800654201881 23.050171458231 16.81394939017 23.258546604977 16.832088383226 23.461611028196 16.839540668915 23.616843194451 16.837000974664 23.734853432374 16.851992722204 23.983703738155 16.875651536377 24.204258634272 16.859355874159 24.234615606251 16.856113743616 24.255893656847 16.857673952875 24.507595900281 16.855612473857 24.631841033851 16.842229229145 24.886552090659 16.845673971868 25.063100393996 16.859313121502 25.2491742368 16.861285504417 25.372841031914 16.891790681005 25.37533649907 16.891824025977 25.631633647663 16.892954800221 25.744987764282 16.890958300084 25.989210824914 16.930786919448 26.076806330997 16.944255771449 26.160244590042 16.944866960227 26.312408356938 16.962344430377 26.502102235684 16.96900560454 26.603085150757 16.977316631535 26.628512022452 16.979058082941 26.890430333145 16.994058252768 26.92996201793 16.999226058646 27.2169594766 17.030722720698 27.275561744406 17.036923993447 27.422931714625 17.058482191013 27.652674811558 17.081408659183 27.712646932463 17.089889118324 27.754518007174 17.0936562527 27.830833802443 17.104760690665 28.003290665846 17.129759183697 28.132162443045 17.143669458333 28.446332182291 17.174536603811 28.570871486571 17.179669655988 28.745411832565 17.198965458649 28.869454635075 17.21115490994 29.025650977159 17.22824629258 29.199466331579 17.251417362511 29.329463339512 17.245588746614 29.471472795191 17.244659503926 29.532168965932 17.247607788446 29.679045251545 17.260095994969 29.890482241321 17.28061234287 30.182869961513 17.255997868373 30.235900844574 17.250607074381 30.295617098192 17.248362916325 30.518929817725 17.240081238687 30.621929246001 17.248 30.94200111442 17.239427000722 30.998507164931 17.240768407647 31.069028461571 17.245367620948 31.319789847424 17.249285903662 31.44051596269 17.270554029941 31.599489268796 17.266074099866 31.81609210532 17.275377190111 31.855959075533 17.276272573116 31.871513040191 17.278733154971 31.887784009578 17.277110698323 32.13072653134 17.292933263119 32.38894876697 17.288076803095 32.417356998731 17.286384879286 32.454364131723 17.285831429837 32.795193405757 17.286069735542 33.094546790334 17.264672019672 33.187627639063 17.259027450631 33.220417330416 17.258372955603 33.281449908942 17.262653848572 33.478544558286 17.265943826955 33.604715962028 17.248750090407 33.762542151184 17.189957967575 33.971502643451 17.123062447758 34.388562451687 17.155712114538 34.418132159378 17.16290307546 34.434075485346 17.165012891615 34.664022868707 17.194260579779 34.925781644739 17.221929323655 35.059349653884 17.229804368479 35.227684316482 17.271896548741 35.282247250404 17.285442402668 35.603688798134 17.336799903923 35.610591298661 17.337804643974 35.61169239079 17.338104979718 35.613699223151 17.338313141914 35.947458949727 17.36590871118 36.038148065743 17.389133691052 36.215673975361 17.388692991235 36.303237829266 17.396186347188 36.423194681761 17.410260493622 36.598424604795 17.43593927467 36.809327644959 17.445782970907 36.861254745328 17.452001725298 36.90357842167 17.454029774983 37.139253561411 17.484135566976 37.329377541884 17.529245430392 37.411709893192 17.547726558688 37.517055763066 17.538416714992 37.646419156886 17.539144921021 37.646419156886 17.539144921021</PntList2D>
+				</ProfSurf>
+				<ProfAlign name="ProfileTest">
+					<PVI>0. 16.650000000373</PVI>
+					<ParaCurve length="2.">18.068762345508 16.650000000373</ParaCurve>
+					<CircCurve length="2.000825911045" radius="40.201735157464">30.727552220665 17.280544131994</CircCurve>
+					<PVI>32.565999180518 17.280544131994</PVI>
+					<PVI>34.706826038982 17.161646782421</PVI>
+				</ProfAlign>
+			</Profile>
+			<Feature name="SpeedStation" code="0" source="Autodesk Civil 3D">
+				<Property label="station" value="0.00000000"></Property>
+				<Property label="speed" value="100.00000000"></Property>
+			</Feature>
+		</Alignment>
+		<Alignment name="OffsetAlignmentTest" length="44.814160996517" staStart="0." desc="">
+			<CoordGeom>
+				<Line dir="260.278085505188" length="44.814160996517">
+					<Start>6954371.908022946678 501805.85556857934</Start>
+					<End>6954327.737440215424 501798.287963475799</End>
+				</Line>
+			</CoordGeom>
+			<Feature name="SpeedStation" code="0" source="Autodesk Civil 3D">
+				<Property label="station" value="0.00000000"></Property>
+				<Property label="speed" value="100.00000000"></Property>
+			</Feature>
+		</Alignment>
+		<Alignment name="StraightLineTest" length="44.814160996517" staStart="0." desc="">
+			<CoordGeom>
+				<Line dir="260.278085505188" length="44.814160996517">
+					<Start>6954372.414622084238 501802.89865171985</Start>
+					<End>6954328.244039352983 501795.331046616309</End>
+				</Line>
+			</CoordGeom>
+			<Profile name="StraightLineTest">
+				<ProfSurf name="ProfileSurfaceTest" state="existing">
+					<PntList2D>0. 14.088792075253 0.119277435183 14.091974094813 0.485130660488 14.091817401798 0.570085004957 14.095818344033 0.660357714974 14.095245182292 1.568392446604 14.132999781744 1.738021301014 14.165698473139 2.98529704332 14.206905104587 3.807199153643 14.136938083195 4.049901999706 14.175963506506 4.252680225208 14.191132396601 4.441157632703 14.187379529964 4.730285694171 14.21033925047 5.128443050464 14.222670136227 5.400901708009 14.249363032324 5.667087629608 14.27757864582 5.768137500539 14.291752465209 5.904300574416 14.295045988698 6.123622758032 14.309374308429 6.366638172549 14.336335662274 6.450784908201 14.35086730752 6.528184760042 14.360593833496 6.69943613897 14.368065189144 6.885033583966 14.376266893368 6.921086321597 14.381691470468 6.949321686236 14.385400592575 7.073772225826 14.388792321954 7.422097880061 14.42036077567 7.579864088929 14.427361762028 8.271164350883 14.488499185122 8.591742873848 14.488442977268 8.625865696518 14.492282910649 8.645789417876 14.490467544819 8.693536781267 14.490688499755 9.003498787253 14.484340868052 9.317507963149 14.489809650102 9.344593406235 14.490728298753 9.367006669124 14.493190684388 9.668077083451 14.523353892127 9.956888570109 14.56358274334 9.98850067338 14.567000000002 10.022514027447 14.568277731545 10.25335715148 14.60860555005 10.306909895776 14.617333926671 10.628805769511 14.625326865236 10.868818714372 14.659794437387 10.989264127033 14.679620427814 11.142490081561 14.689445009292 11.197694992577 14.696527367037 11.244963053721 14.698389298115 11.316402795717 14.711051906331 11.477260227013 14.751759866716 11.757270873244 14.792677790543 11.759421580203 14.792709333431 11.762745442669 14.793013402555 12.002999010008 14.808682793142 12.16669123512 14.836330040863 12.262879247246 14.85427504432 12.514631909067 14.882149444759 12.600300024194 14.89286284266 12.661832967209 14.901979065244 13.006079096547 14.959036904285 13.146527152697 14.994005284713 13.282443926259 15.026838713495 13.314295009768 15.031461005358 13.769735756482 15.092585987578 13.862714748353 15.111472341211 14.035007685733 15.1453933817 14.137257381752 15.176457208974 14.283323107471 15.225708005856 14.355697060611 15.239596284798 14.399938946612 15.247034169282 14.553307543017 15.276663360275 14.706035327679 15.297931508609 14.896122871193 15.339635810194 15.043807428779 15.360077536977 15.254774182824 15.386499193248 15.268071404372 15.386567911064 15.277566375858 15.388845855051 15.294773910061 15.391720142866 15.627987016771 15.44915840729 15.911880480228 15.472776075791 15.983657379609 15.484619153243 16.147991492694 15.508828383017 16.335072740685 15.543435715167 16.379823349099 15.548320772528 16.425825151686 15.561757752656 16.76267196235 15.638700138041 16.77015963126 15.640739679188 16.772816261876 15.641145706064 16.776119442551 15.641263708978 17.060126762697 15.66186256516 17.212255744605 15.668340414739 17.44353814335 15.71792178744 17.606143851097 15.753767794894 17.838168869928 15.777275471915 17.981100275742 15.804510033897 18.212116055194 15.83590897003 18.305679283368 15.846881450319 18.5253237083 15.88030638947 18.6122868908 15.88220460022 18.739306570568 15.89995917556 18.901031983663 15.908451299523 18.962414241892 15.908441063662 19.354660635931 15.90561707266 19.410774860195 15.915215223849 19.494817255178 15.91798568249 19.653638483457 15.935520563771 19.864672804857 15.944721026249 19.994805967802 15.947456205031 20.36338513345 15.960378341889 20.377075788272 15.961101353122 20.382151621706 15.961546803363 20.396627620837 15.963559609325 20.71173080805 16.008906694932 20.816637395459 16.010370286264 20.969946742396 16.011018651985 21.1453851551 16.004689452018 21.257873529292 16.009901033357 21.463644353158 16.036909081815 21.717967566861 16.041721248878 21.76061737943 16.042844540605 21.869262658714 16.055042904429 22.199511569561 16.094093689875 22.272135977724 16.100169729854 22.509805457601 16.110832082111 22.5945525617 16.111706588538 22.694990040431 16.129189032628 22.850570414078 16.141574852239 23.056995808253 16.135268167134 23.064479888465 16.13487076184 23.235226251784 16.181516545379 23.565494743637 16.214937637128 23.707279048386 16.237375060924 23.775769383026 16.253651165067 23.898916437186 16.279557790315 23.932354500263 16.277157050581 25.441977484733 16.212093849236 27.002782944783 16.297418089028 27.31636595255 16.346593048584 34.127972797707 16.649719901829 35.143341818875 16.675645612331 35.308052884429 16.666880080547 36.090778757159 16.797796363026 37.374279555204 16.867117726219 37.688374988408 16.817682591524 37.996340002489 16.793372593302 38.074758166562 16.789929284193 38.304921921595 16.77438352472 38.380385190388 16.772241268859 38.653505949046 16.787219301817 38.993865590229 16.816013393872 39.027153737648 16.816313043063 39.088768651004 16.815042489015 39.424022274167 16.804633867752 39.521562609422 16.81765462511 39.626430658474 16.830384623231 39.850131826953 16.85909806472 40.156936593711 16.875185807703 40.247315562521 16.872027443424 40.349901230096 16.868868091132 40.488607191289 16.855608645127 40.612549334447 16.863122764681 40.766542832489 16.867671171482 40.933975615669 16.871109659149 41.002326296164 16.877645486033 41.208053670133 16.896750919248 41.301182714656 16.903328884502 41.547297153593 16.920424279296 41.638142296315 16.924987766283 41.775040640919 16.932456184647 41.922503376555 16.938619865584 42.012661264209 16.949336523374 42.193669838259 16.962405742686 42.370332925765 16.967015951316 42.467332071179 16.97686060792 42.56408260221 16.997431443229 42.751526969425 17.028692431131 42.875075276793 17.038087924265 43.106415807188 17.033725181763 43.423836216886 17.069045867297 43.438081921224 17.070523785014 43.446581712385 17.070826743714 43.689736636453 17.093332924233 43.789089123789 17.104070118557 44.103833900162 17.141000215642 44.163501395388 17.147261497826 44.287415297616 17.140774690843 44.415795817796 17.144234043668 44.553542313699 17.143666754094 44.715113071548 17.153830291745 44.814160996517 17.148800322141 44.814160996517 17.148800322141</PntList2D>
+				</ProfSurf>
+				<ProfAlign name="StraightLineTest_layoutProfileTest">
+					<PVI>0.66035771498 14.095245182328</PVI>
+					<ParaCurve length="17.446143877238">19.696150997828 16.853261875175</ParaCurve>
+					<ParaCurve length="0.872307193862">28.878331985848 17.34280272536</ParaCurve>
+					<ParaCurve length="9.859867900051">37.710715679626 17.570089336671</ParaCurve>
+					<PVI>42.900119837548 17.7799074376</PVI>
+				</ProfAlign>
+			</Profile>
+			<Feature name="SpeedStation" code="0" source="Autodesk Civil 3D">
+				<Property label="station" value="0.06499028"></Property>
+				<Property label="speed" value="100.00000000"></Property>
+			</Feature>
+		</Alignment>
+	</Alignments>
+	<Parcels name="ParcelSiteTest">
+		<Parcel name="Basic : 1" area="431.924262827484" desc="">
+			<CoordGeom>
+				<Line dir="260.246219210883" length="41.404781616027">
+					<Start>6954372.091518215835 501791.532564740628</Start>
+					<End>6954331.285247603431 501784.517992809415</End>
+				</Line>
+				<Line dir="170.42966881873" length="10.452145142899">
+					<Start>6954331.285247603431 501784.517992809415</Start>
+					<End>6954333.023001994938 501774.211317896377</End>
+				</Line>
+				<Line dir="80.189136909865" length="41.407178304484">
+					<Start>6954333.023001994938 501774.211317896377</Start>
+					<End>6954373.824625559151 501781.266948956996</End>
+				</Line>
+				<Line dir="350.417318839234" length="10.410885095928">
+					<Start>6954373.824625559151 501781.266948956996</Start>
+					<End>6954372.091518215835 501791.532564740628</End>
+				</Line>
+			</CoordGeom>
+		</Parcel>
+		<Parcel name="Basic : 2" area="431.979703712509" desc="">
+			<CoordGeom>
+				<Line dir="350.426493713525" length="10.410590094953">
+					<Start>6954375.556039966643 501771.001346671954</Start>
+					<End>6954373.824625559151 501781.266948956996</End>
+				</Line>
+				<Line dir="260.189136909865" length="41.407178304484">
+					<Start>6954373.824625559151 501781.266948956996</Start>
+					<End>6954333.023001994938 501774.211317896377</End>
+				</Line>
+				<Line dir="170.431840709794" length="10.454314702889">
+					<Start>6954333.023001994938 501774.211317896377</Start>
+					<End>6954334.760726319626 501763.902437740006</End>
+				</Line>
+				<Line dir="80.128642352775" length="41.408358136765">
+					<Start>6954334.760726319626 501763.902437740006</Start>
+					<End>6954375.556039966643 501771.001346671954</End>
+				</Line>
+			</CoordGeom>
+		</Parcel>
+	</Parcels>
+	<PlanFeatures name="Siteless FeatureLines">
+		<PlanFeature name="NoSiteFeatureLine1Test">
+			<CoordGeom>
+				<Line>
+					<Start>6954322.229089017957 501777.88286035182 0.</Start>
+					<End>6954321.198668267578 501789.663313495461 0.</End>
+				</Line>
+				<Line>
+					<Start>6954321.198668267578 501789.663313495461 0.</Start>
+					<End>6954319.800241194665 501797.246980818454 0.</End>
+				</Line>
+				<Line>
+					<Start>6954319.800241194665 501797.246980818454 0.</Start>
+					<End>6954319.800241194665 501798.866792909801 0.</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="layer" value="C$-FEAT-_None_"></Property>
+				<Property label="style" value="Proposed Feature Line Colour - Orange"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature name="NoSiteFeatureLine2Test">
+			<CoordGeom>
+				<Line>
+					<Start>6954325.614755563438 501774.790492337197 0.</Start>
+					<End>6954323.038704641163 501783.846715583466 0.</End>
+				</Line>
+				<Line>
+					<Start>6954323.038704641163 501783.846715583466 0.</Start>
+					<End>6954322.229089017957 501791.872149107512 0.</End>
+				</Line>
+				<Line>
+					<Start>6954322.229089017957 501791.872149107512 0.</Start>
+					<End>6954320.830660995096 501801.443766639568 0.</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="layer" value="C$-FEAT-_None_"></Property>
+				<Property label="style" value="Proposed Feature Line Colour - Orange"></Property>
+			</Feature>
+		</PlanFeature>
+		<Feature code="FeatureLines" source="Autodesk Civil 3D"></Feature>
+	</PlanFeatures>
+	<PlanFeatures name="Site -FeatureLineTest- FeatureLines">
+		<PlanFeature>
+			<CoordGeom>
+				<Line>
+					<Start>6954356.790369328111 501799.074099164922 15.600000000093</Start>
+					<End>6954355.125013038516 501808.954389054794 15.399999999907</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Basic"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature>
+			<CoordGeom>
+				<Line>
+					<Start>6954354.829384353012 501808.903348816559 16.400000000373</Start>
+					<End>6954333.869418442249 501805.284221088514 16.399999999907</End>
+				</Line>
+				<Line>
+					<Start>6954333.869418442249 501805.284221088514 16.399999999907</Start>
+					<End>6954335.533872701228 501795.409794789739 16.399999999907</End>
+				</Line>
+				<Line>
+					<Start>6954335.533872701228 501795.409794789739 16.399999999907</Start>
+					<End>6954356.494727488607 501799.023136948701 16.400000000373</End>
+				</Line>
+				<Line>
+					<Start>6954356.494727488607 501799.023136948701 16.400000000373</Start>
+					<End>6954354.829384353012 501808.903348816559 16.400000000373</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Basic"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature>
+			<CoordGeom>
+				<Line>
+					<Start>6954333.869418442249 501805.284221088514 16.399999999907</Start>
+					<End>6954327.956904968247 501804.263820218388 17.263759064022</End>
+				</Line>
+				<Line>
+					<Start>6954327.956904968247 501804.263820218388 17.263759064022</Start>
+					<End>6954329.621076799929 501794.390557508916 17.048535084818</End>
+				</Line>
+				<Line>
+					<Start>6954329.621076799929 501794.390557508916 17.048535084818</Start>
+					<End>6954335.533872701228 501795.409794789739 16.399999999907</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Basic"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature name="Feature 1">
+			<CoordGeom>
+				<Line>
+					<Start>6954356.494727488607 501799.023136948701 16.400000000373</Start>
+					<End>6954356.790409050882 501799.073868722655 15.466018131468</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Feature Line Colour - Orange"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature name="Feature 2">
+			<CoordGeom>
+				<Line>
+					<Start>6954354.829384353012 501808.903348816559 16.400000000373</Start>
+					<End>6954355.125013038516 501808.954389054794 15.399999999907</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Feature Line Colour - Orange"></Property>
+			</Feature>
+		</PlanFeature>
+		<PlanFeature name="crest">
+			<CoordGeom>
+				<Line>
+					<Start>6954356.790409050882 501799.073868722655 15.466018131468</Start>
+					<End>6954369.930058907717 501801.338814689778 15.099999999627</End>
+				</Line>
+				<Line>
+					<Start>6954369.930058907717 501801.338814689778 15.099999999627</Start>
+					<End>6954368.223321154714 501811.215809529182 15.099999999627</End>
+				</Line>
+				<Line>
+					<Start>6954368.223321154714 501811.215809529182 15.099999999627</Start>
+					<End>6954355.125013038516 501808.954389054794 15.399999999907</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="FeatureLineTest"></Property>
+				<Property label="layer" value="C$-FEAT-PAD-DS_top"></Property>
+				<Property label="style" value="Proposed Basic"></Property>
+			</Feature>
+		</PlanFeature>
+		<Feature code="FeatureLines" source="Autodesk Civil 3D">
+			<Property label="site" value="FeatureLineTest"></Property>
+		</Feature>
+	</PlanFeatures>
+	<PlanFeatures name="Site -SLAB-DS_top- FeatureLines">
+		<PlanFeature name="edge">
+			<CoordGeom>
+				<Line>
+					<Start>6954333.894335754216 501796.125605371315 16.649999999907</Start>
+					<End>6954335.571600556374 501796.40801283624 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954335.571600556374 501796.40801283624 16.649999999907</Start>
+					<End>6954335.70552110672 501795.617427819408 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954335.70552110672 501795.617427819408 16.649999999907</Start>
+					<End>6954341.88622472249 501796.625562841538 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954341.88622472249 501796.625562841538 16.649999999907</Start>
+					<End>6954341.747787956148 501797.449030117597 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954341.747787956148 501797.449030117597 16.649999999907</Start>
+					<End>6954356.318328086287 501799.848018689547 16.650000000373</End>
+				</Line>
+				<Line>
+					<Start>6954356.318328086287 501799.848018689547 16.650000000373</Start>
+					<End>6954355.308156138286 501805.760079413652 16.650000000373</End>
+				</Line>
+				<Line>
+					<Start>6954355.308156138286 501805.760079413652 16.650000000373</Start>
+					<End>6954351.043357148767 501805.018402772024 16.650000000373</End>
+				</Line>
+				<Line>
+					<Start>6954351.043357148767 501805.018402772024 16.650000000373</Start>
+					<End>6954350.763598933816 501806.678163077682 16.650000000373</End>
+				</Line>
+				<Line>
+					<Start>6954350.763598933816 501806.678163077682 16.650000000373</Start>
+					<End>6954346.546252023429 501805.967314987909 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954346.546252023429 501805.967314987909 16.649999999907</Start>
+					<End>6954346.471425388008 501806.411249324214 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954346.471425388008 501806.411249324214 16.649999999907</Start>
+					<End>6954344.163110654801 501806.022089736536 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954344.163110654801 501806.022089736536 16.649999999907</Start>
+					<End>6954344.237566437572 501805.578419825993 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954344.237566437572 501805.578419825993 16.649999999907</Start>
+					<End>6954335.797816254199 501804.155629775021 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954335.797816254199 501804.155629775021 16.649999999907</Start>
+					<End>6954336.153694450855 501802.044261904899 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954336.153694450855 501802.044261904899 16.649999999907</Start>
+					<End>6954332.98664198257 501801.510805927217 16.649999999907</End>
+				</Line>
+				<Line>
+					<Start>6954332.98664198257 501801.510805927217 16.649999999907</Start>
+					<End>6954333.894335754216 501796.125605371315 16.649999999907</End>
+				</Line>
+			</CoordGeom>
+			<Feature code="FeatureLine" source="Autodesk Civil 3D">
+				<Property label="site" value="SLAB-DS_top"></Property>
+				<Property label="layer" value="C$-FEAT-SLAB-DS_top"></Property>
+				<Property label="style" value="Proposed Feature Line Colour - Orange"></Property>
+			</Feature>
+		</PlanFeature>
+		<Feature code="FeatureLines" source="Autodesk Civil 3D">
+			<Property label="site" value="SLAB-DS_top"></Property>
+		</Feature>
+	</PlanFeatures>
+	<PipeNetworks>
+		<PipeNetwork name="Pipes" pipeNetType="storm" alignmentRef="" desc="">
+			<Structs>
+				<Struct name="StartNullStruct3" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954323.009525252506 501805.523767676787</Center>
+					<Connection></Connection>
+					<Invert elev="17.35" flowDir="out" refPipe="Pipe - (6) (Pipes)"></Invert>
+				</Struct>
+				<Struct name="EndNullStruct3" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954324.086260776035 501811.620338914567</Center>
+					<Connection></Connection>
+					<Invert elev="-0.05" flowDir="in" refPipe="Pipe - (6) (Pipes)"></Invert>
+				</Struct>
+				<Struct name="StartNullStruct4" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954324.221499999985 501796.018999999971</Center>
+					<Connection></Connection>
+					<Invert elev="16.95" flowDir="in" refPipe="Pipe - (5) (Pipes)"></Invert>
+				</Struct>
+				<Struct name="EndNullStruct4" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954323.009525252506 501805.523767676787</Center>
+					<Connection></Connection>
+					<Invert elev="17.35" flowDir="out" refPipe="Pipe - (5) (Pipes)"></Invert>
+				</Struct>
+				<Struct name="StartNullStruct5" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954327.871000000276 501780.779725000029</Center>
+					<Connection></Connection>
+					<Invert elev="16.75" flowDir="in" refPipe="Pipe - (4) (Pipes)"></Invert>
+				</Struct>
+				<Struct name="EndNullStruct5" desc="Dummy Null Structure for LandXML purposes" elevRim="0.">
+					<Center>6954324.221499999985 501796.018999999971</Center>
+					<Connection></Connection>
+					<Invert elev="16.95" flowDir="out" refPipe="Pipe - (4) (Pipes)"></Invert>
+				</Struct>
+			</Structs>
+			<Pipes>
+				<Pipe name="Pipe - (6) (Pipes)" refEnd="EndNullStruct3" refStart="StartNullStruct3" desc="Concrete Pipe SI" length="18.468555445539" slope="2.810565908812">
+					<CircPipe diameter="100." thickness="0.025"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (5) (Pipes)" refEnd="EndNullStruct4" refStart="StartNullStruct4" desc="Concrete Pipe SI" length="9.590072542935" slope="-0.041746128022">
+					<CircPipe diameter="100." thickness="0.025"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (4) (Pipes)" refEnd="EndNullStruct5" refStart="StartNullStruct5" desc="Concrete Pipe SI" length="15.671450244823" slope="-0.012763100152">
+					<CircPipe diameter="100." thickness="0.025"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+			</Pipes>
+		</PipeNetwork>
+		<PipeNetwork name="PipesAndStructures" pipeNetType="storm" alignmentRef="" desc="">
+			<Structs>
+				<Struct name="Structure - (7) (PipesAndStructures)" desc="Null Structure" elevRim="17.4825">
+					<Center>6954323.009525252506 501805.523767676787</Center>
+					<Connection></Connection>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (6) (PipesAndStructures)" desc="Null Structure" elevRim="17.0825">
+					<Center>6954324.221499999985 501796.018999999971</Center>
+					<Connection></Connection>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (1) (PipesAndStructures)" desc="Rectangular Structure Slab Top Circular Frame SI" elevRim="16.75" elevSump="15.75">
+					<Center>6954355.068179190159 501809.939404624281</Center>
+					<RectStruct length="1.5" width="0.75" thickness="0.075"></RectStruct>
+					<Invert elev="15.75" flowDir="out" refPipe="Pipe - (1) (PipesAndStructures)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (2) (PipesAndStructures)" desc="Rectangular Structure Slab Top Circular Frame SI" elevRim="15.95" elevSump="14.95">
+					<Center>6954362.639093022794 501793.402232558117</Center>
+					<RectStruct length="1.5" width="0.75" thickness="0.075"></RectStruct>
+					<Invert elev="14.95" flowDir="in" refPipe="Pipe - (1) (PipesAndStructures)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (5) (PipesAndStructures)" desc="Rectangular Headwall Variable Height SI" elevRim="15.825">
+					<Center>6954364.694590436295 501815.830174636212</Center>
+					<OutletStruct></OutletStruct>
+					<Invert elev="15.55" flowDir="in" refPipe="Pipe - (3) (PipesAndStructures)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (3) (PipesAndStructures)" desc="Cylindrical Junction Structure NF SI" elevRim="14.275" elevSump="13.95">
+					<Center>6954369.711720364168 501793.991662613989</Center>
+					<CircStruct diameter="1200." thickness="0.1"></CircStruct>
+					<Invert elev="13.95" flowDir="out" refPipe="Pipe - (2) (PipesAndStructures)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+				<Struct name="Structure - (4) (PipesAndStructures)" desc="Cylindrical Junction Structure NF SI" elevRim="0.275" elevSump="-0.05">
+					<Center>6954362.727601644583 501810.098750778241</Center>
+					<CircStruct diameter="1200." thickness="0.1"></CircStruct>
+					<Invert elev="-0.05" flowDir="in" refPipe="Pipe - (2) (PipesAndStructures)"></Invert>
+					<Invert elev="-0.05" flowDir="out" refPipe="Pipe - (3) (PipesAndStructures)"></Invert>
+					<Feature code="StructureFeature" source="Autodesk Civil 3D">
+						<Property label="controlSumpBy" value="depth"></Property>
+					</Feature>
+				</Struct>
+			</Structs>
+			<Pipes>
+				<Pipe name="Pipe - (1) (PipesAndStructures)" refEnd="Structure - (2) (PipesAndStructures)" refStart="Structure - (1) (PipesAndStructures)" desc="Concrete Box Culvert SI" length="18.205405686419" slope="0.043985480403">
+					<RectPipe height="0.5" width="1." thickness="0.1"></RectPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (2) (PipesAndStructures)" refEnd="Structure - (4) (PipesAndStructures)" refStart="Structure - (3) (PipesAndStructures)" desc="Concrete Pipe SI" length="22.454759037234" slope="0.797444197689">
+					<CircPipe diameter="100." thickness="0.025"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+				<Pipe name="Pipe - (3) (PipesAndStructures)" refEnd="Structure - (5) (PipesAndStructures)" refStart="Structure - (4) (PipesAndStructures)" desc="Concrete Pipe SI" length="16.735538961935" slope="-2.574444455918">
+					<CircPipe diameter="100." thickness="0.025"></CircPipe>
+					<PipeFlow flowIn="0." areaCatchment="0." hglDown="0." hglUp="0." runoffCoeff="0." timeInlet="0."></PipeFlow>
+				</Pipe>
+			</Pipes>
+		</PipeNetwork>
+	</PipeNetworks>
+	<Roadways>
+		<Roadway name="CorridorTest" alignmentRefs="CenterLineWithSpiralTest" staStart="0." staEnd="37.64641915651">
+			<Speeds>
+				<DesignSpeed staStart="0." speed="100."></DesignSpeed>
+			</Speeds>
+		</Roadway>
+	</Roadways>
+	<Surfaces>
+		<Surface name="SurfaceTest" desc="Description">
+			<SourceData></SourceData>
+			<Definition surfType="TIN" area2DSurf="165.223700689907" area3DSurf="165.223700689907" elevMax="16.650000000373" elevMin="16.649999999907">
+				<Pnts>
+					<P id="5">6954332.98664198257 501801.510805927217 16.649999999907</P>
+					<P id="6">6954333.894335754216 501796.125605371315 16.649999999907</P>
+					<P id="7">6954335.571600556374 501796.40801283624 16.649999999907</P>
+					<P id="8">6954335.70552110672 501795.617427819408 16.649999999907</P>
+					<P id="9">6954341.88622472249 501796.625562841538 16.649999999907</P>
+					<P id="10">6954341.747787956148 501797.449030117597 16.649999999907</P>
+					<P id="11">6954356.318328086287 501799.848018689547 16.650000000373</P>
+					<P id="12">6954355.308156138286 501805.760079413652 16.650000000373</P>
+					<P id="13">6954351.043357148767 501805.018402772024 16.650000000373</P>
+					<P id="14">6954350.763598933816 501806.678163077682 16.650000000373</P>
+					<P id="15">6954346.546252023429 501805.967314987909 16.649999999907</P>
+					<P id="16">6954346.471425388008 501806.411249324214 16.649999999907</P>
+					<P id="17">6954344.163110654801 501806.022089736536 16.649999999907</P>
+					<P id="18">6954344.237566437572 501805.578419825993 16.649999999907</P>
+					<P id="19">6954335.797816254199 501804.155629775021 16.649999999907</P>
+					<P id="20">6954336.153694450855 501802.044261904899 16.649999999907</P>
+				</Pnts>
+				<Faces>
+					<F i="1" n="3 0 20">20 5 19</F>
+					<F n="4 0 3">7 6 5</F>
+					<F n="6 2 1">20 7 5</F>
+					<F i="1" n="0 2 5">8 6 7</F>
+					<F n="7 4 6">10 8 7</F>
+					<F n="12 5 3">20 10 7</F>
+					<F n="8 0 5">10 9 8</F>
+					<F i="1" n="0 7 9">11 9 10</F>
+					<F n="10 13 8">10 13 11</F>
+					<F n="15 9 11">15 13 10</F>
+					<F n="18 10 12">18 15 10</F>
+					<F n="20 11 6">20 18 10</F>
+					<F n="14 0 9">13 12 11</F>
+					<F i="1" n="0 13 15">14 12 13</F>
+					<F n="16 14 10">15 14 13</F>
+					<F i="1" n="0 15 17">16 14 15</F>
+					<F n="0 16 18">17 16 15</F>
+					<F n="19 17 11">18 17 15</F>
+					<F i="1" n="0 18 20">19 17 18</F>
+					<F n="1 19 12">20 19 18</F>
+				</Faces>
+			</Definition>
+		</Surface>
+	</Surfaces>
+</LandXML>

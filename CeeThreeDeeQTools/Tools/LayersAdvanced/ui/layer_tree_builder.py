@@ -19,7 +19,7 @@ from qgis.core import (
     QgsLayerTreeLayer,
     QgsVectorLayer,
     QgsRasterLayer,
-    QgsSymbol,
+    QgsSymbolLayerUtils,
     QgsRendererCategory,
     QgsCategorizedSymbolRenderer,
     QgsSingleSymbolRenderer,
@@ -327,12 +327,17 @@ class LayerTreeBuilder:
                     LayerTreeBuilder.add_range_item(range_item, i, parent_item, vector_layer, layer_node)
             
             elif isinstance(renderer, QgsSingleSymbolRenderer):
-                # Single symbol - show the symbol icon next to layer name (not as child)
                 symbol = renderer.symbol()
                 if symbol:
                     icon = LayerTreeBuilder.create_symbol_icon(symbol, vector_layer)
                     if icon:
-                        parent_item.setIcon(0, icon)
+                        legend_item = QTreeWidgetItem(parent_item)
+                        legend_items = renderer.legendSymbolItems()
+                        label = legend_items[0].label() if legend_items else ""
+                        legend_item.setText(0, label or vector_layer.name())
+                        legend_item.setIcon(0, icon)
+                        legend_item.setData(0, Qt.ItemDataRole.UserRole, vector_layer.id())
+                        legend_item.setData(0, Qt.ItemDataRole.UserRole + 1, "legend")
             
             elif isinstance(renderer, QgsRuleBasedRenderer):
                 # Rule-based renderer - add each rule as a child
@@ -461,16 +466,7 @@ class LayerTreeBuilder:
             QIcon or None
         """
         try:
-            # Create a small pixmap for the symbol
-            size = QSize(16, 16)
-            pixmap = QPixmap(size)
-            pixmap.fill(Qt.transparent)
-            
-            painter = QPainter(pixmap)
-            symbol.drawPreviewIcon(painter, size)
-            painter.end()
-            
-            return QIcon(pixmap)
+            return QgsSymbolLayerUtils.symbolPreviewIcon(symbol, QSize(32, 20))
         except Exception:
             return None
     

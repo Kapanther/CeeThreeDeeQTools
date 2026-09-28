@@ -97,7 +97,7 @@ class LandXMLMesh:
 
         LandXMLMesh._rename_elevation_group(layer, warnings)
         LandXMLMesh._add_slope_dataset(
-            layer, path, nodes, elements, surface['name'], warnings)
+            layer, path, nodes, elements, surface['name'], warnings)        
         LandXMLMesh._style_slope(layer, warnings)
         return layer
 
@@ -149,13 +149,20 @@ class LandXMLMesh:
 
     @staticmethod
     def _style_slope(layer, warnings):
-        """Show slope with two discrete equal-interval classes split at 15%."""
+        """Show slope with two discrete classes split at 15%.
+
+        The upper bound is taken from the dataset's own statistics rather
+        than a fixed value, otherwise any face steeper than the assumed
+        maximum would fall outside every class and not render at all.
+        """
         try:
             index = LandXMLMesh._group_index(layer, SLOPE_PERCENT_GROUP_NAME)
             if index is None:
                 return
 
-            maximum = SLOPE_BREAK_PERCENT * 2.0
+            metadata = layer.datasetGroupMetadata(QgsMeshDatasetIndex(index, 0))
+            maximum = max(metadata.maximum(), SLOPE_BREAK_PERCENT + 1.0)
+
             shader = QgsColorRampShader(0.0, maximum)
             shader.setColorRampType(_enum(QgsColorRampShader, 'Type', 'Discrete'))
             shader.setClassificationMode(

@@ -31,6 +31,7 @@ from qgis.core import (
     QgsFeature,
     QgsField,
     QgsFields,
+    QgsFillSymbol,
     QgsGeometry,
     QgsLineSymbol,
     QgsMarkerSymbol,
@@ -39,6 +40,7 @@ from qgis.core import (
     QgsPointXY,
     QgsProject,
     QgsRendererCategory,
+    QgsSingleSymbolRenderer,
     QgsRuleBasedLabeling,
     QgsTextBufferSettings,
     QgsTextFormat,
@@ -80,6 +82,10 @@ class LandXMLImportLogic:
                           structure=STRUCTURE_PER_ALIGNMENT,
                           surface_names=None, include_hidden_faces=False,
                           point_group_keys=None,
+                          pipe_network_names=None,
+                          feature_line_group_names=None,
+                          parcel_names=None,
+                          corridor_names=None,
                           generate_contours=False, minor_interval=0.25,
                           major_interval=1.0,
                           group_name=None, group_per_alignment=False,
@@ -104,9 +110,15 @@ class LandXMLImportLogic:
         profile_keys = set(profile_keys or [])
         surface_names = set(surface_names or [])
         point_group_keys = list(point_group_keys or [])
+        pipe_network_names = set(pipe_network_names or [])
+        feature_line_group_names = set(feature_line_group_names or [])
+        parcel_names = set(parcel_names or [])
+        corridor_names = set(corridor_names or [])
         needed = set(alignment_names) | {key[0] for key in profile_keys}
 
-        if not needed and not surface_names and not point_group_keys:
+        if (not needed and not surface_names and not point_group_keys
+            and not pipe_network_names and not feature_line_group_names
+                and not parcel_names and not corridor_names):
             results['errors'].append("Nothing selected to import.")
             return results
 
@@ -225,8 +237,425 @@ class LandXMLImportLogic:
                 generate_contours, minor_interval, major_interval,
                 results, report)
 
+        if pipe_network_names:
+            LandXMLImportLogic._import_pipe_networks(
+                file_path, pipe_network_names, target_crs, transform, base_group,
+                root, source_name, output_mode, output_path, writer_state,
+                results, report)
+
+        if feature_line_group_names:
+            LandXMLImportLogic._import_feature_lines(
+                file_path, feature_line_group_names, target_crs, transform,
+                base_group, source_name, output_mode, output_path, writer_state,
+                results, report)
+
+        if parcel_names:
+            LandXMLImportLogic._import_parcels(
+                file_path, parcel_names, target_crs, transform, base_group,
+                source_name, output_mode, output_path, writer_state, results,
+                report)
+
+        if corridor_names:
+            LandXMLImportLogic._import_corridors(
+                file_path, corridor_names, target_crs, transform, base_group,
+                root, curve_tolerance, source_name, output_mode, output_path,
+                writer_state, results, report)
+
         report("Import complete.", 100)
         return results
+
+    # ------------------------------------------------------------------
+    # Feature lines and parcels
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _import_corridors(file_path, corridor_names, target_crs, transform,
+                          base_group, root, curve_tolerance, source_name,
+                          output_mode, output_path, state, results, report):
+        report("Reading corridors...", 95)
+        corridors = LandXMLParser.parse_corridors(file_path, corridor_names)
+        alignments = LandXMLParser.parse_alignments(
+            file_path,
+            {reference for corridor in corridors
+             for reference in corridor['alignment_refs']},
+            curve_tolerance)
+        alignment_by_name = {alignment['name']: alignment
+                             for alignment in alignments}
+        for corridor in corridors:
+            parent = base_group if base_group is not None else root
+            corridor_group = (parent.findGroup(corridor['name'])
+                              or parent.addGroup(corridor['name']))
+            for alignment_name in corridor['alignment_refs']:
+                alignment = alignment_by_name.get(alignment_name)
+                if alignment is None or not alignment['cross_sections']:
+                    results['warnings'].append(
+                        "Corridor '{0}' references alignment '{1}' without cross sections."
+                        .format(corridor['name'], alignment_name))
+                    continue
+                sections = alignment['cross_sections']
+                link_layer = LandXMLImportLogic._corridor_links_layer(
+                    alignment, corridor['name'], target_crs, transform,
+                    source_name)
+                feature_layer = LandXMLImportLogic._corridor_featurelines_layer(
+                    alignment, corridor['name'], target_crs, transform,
+                    source_name)
+                if link_layer is not None:
+                    LandXMLImportLogic._store_layer(
+                        link_layer, corridor_group, output_mode, output_path,
+                        state, results)
+                if feature_layer is not None:
+                    LandXMLImportLogic._store_layer(
+                        feature_layer, corridor_group, output_mode, output_path,
+                        state, results, style_fn=LandXMLImportLogic._style_feature_lines)
+
+    @staticmethod
+    def _corridor_point(alignment, station, offset_x, offset_y, transform):
+        points = alignment['points']
+        stations = LandXMLImportLogic._station_table(
+            points, alignment['staStart'])
+        center = LandXMLImportLogic._point_at_station(points, stations, station)
+        if center is None:
+            return None
+        if len(points) < 2:
+            return None
+        index = next((i for i in range(1, len(stations))
+                      if station <= stations[i]), len(points) - 1)
+        before = points[max(0, index - 1)]
+        after = points[min(len(points) - 1, index)]
+        dx = after[0] - before[0]
+        dy = after[1] - before[1]
+        length = math.hypot(dx, dy) or 1.0
+        x = center[0] - dy / length * offset_x
+        y = center[1] + dx / length * offset_x
+        if transform is not None:
+            projected = transform.transform(QgsPointXY(x, y))
+            x, y = projected.x(), projected.y()
+        return QgsPoint(x, y, offset_y)
+
+    @staticmethod
+    def _corridor_links_layer(alignment, corridor_name, target_crs,
+                               transform, source_name):
+        fields = QgsFields()
+        for name, field_type in (
+            ('Alignment', QVariant.String), ('CorridorName', QVariant.String),
+            ('Station', QVariant.Double), ('LinkCode', QVariant.String),
+            ('StartOffsetX', QVariant.Double), ('StartOffsetY', QVariant.Double),
+            ('EndOffsetX', QVariant.Double), ('EndOffsetY', QVariant.Double),
+            ('Grade', QVariant.Double), ('StartPointCode', QVariant.String),
+            ('EndPointCode', QVariant.String)):
+            fields.append(QgsField(name, field_type))
+        layer = QgsVectorLayer('LineStringZ', corridor_name + ' Cross Sections', 'memory')
+        layer.setCrs(target_crs)
+        layer.dataProvider().addAttributes(fields.toList())
+        layer.updateFields()
+        features = []
+        for section in alignment['cross_sections']:
+            for link in section['links']:
+                start = LandXMLImportLogic._corridor_point(
+                    alignment, section['station'], link['start_offset_x'],
+                    link['start_offset_y'], transform)
+                end = LandXMLImportLogic._corridor_point(
+                    alignment, section['station'], link['end_offset_x'],
+                    link['end_offset_y'], transform)
+                if start is None or end is None:
+                    continue
+                feature = QgsFeature(fields)
+                feature.setGeometry(QgsGeometry.fromPolyline([start, end]))
+                feature.setAttributes([
+                    alignment['name'], corridor_name, section['station'],
+                    link['code'], link['start_offset_x'], link['start_offset_y'],
+                    link['end_offset_x'], link['end_offset_y'], link['grade'],
+                    link['start_code'], link['end_code'],
+                ])
+                features.append(feature)
+        if not features:
+            return None
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        return layer
+
+    @staticmethod
+    def _corridor_featurelines_layer(alignment, corridor_name, target_crs,
+                                     transform, source_name):
+        fields = QgsFields()
+        for name in ('Alignment', 'CorridorName', 'Code'):
+            fields.append(QgsField(name, QVariant.String))
+        layer = QgsVectorLayer('LineStringZ', corridor_name + ' Feature Lines', 'memory')
+        layer.setCrs(target_crs)
+        layer.dataProvider().addAttributes(fields.toList())
+        layer.updateFields()
+        strings = []
+        active = {}
+        for section in alignment['cross_sections']:
+            current_counts = {}
+            for point in section.get('points', []):
+                code = point['code'] or '(uncoded)'
+                occurrence = current_counts.get(code, 0)
+                current_counts[code] = occurrence + 1
+                key = (code, occurrence)
+                vertex = LandXMLImportLogic._corridor_point(
+                    alignment, section['station'], point['offset_x'],
+                    point['offset_y'], transform)
+                if vertex is None:
+                    continue
+                if key not in active:
+                    active[key] = []
+                    strings.append((code, active[key]))
+                active[key].append(vertex)
+            active = {key: vertices for key, vertices in active.items()
+                      if key[1] < current_counts.get(key[0], 0)}
+
+        features = []
+        for code, vertices in strings:
+            if len(vertices) < 2:
+                continue
+            feature = QgsFeature(fields)
+            feature.setGeometry(QgsGeometry.fromPolyline(vertices))
+            feature.setAttributes([alignment['name'], corridor_name, code])
+            features.append(feature)
+        if not features:
+            return None
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        return layer
+
+    @staticmethod
+    def _import_feature_lines(file_path, group_names, target_crs, transform,
+                              group, source_name, output_mode, output_path,
+                              state, results, report):
+        report("Reading feature lines...", 93)
+        groups = LandXMLParser.parse_feature_lines(file_path, group_names)
+        for feature_group in groups:
+            fields = QgsFields()
+            for name, field_type in (
+                ('name', QVariant.String), ('code', QVariant.String),
+                ('site', QVariant.String), ('layer', QVariant.String),
+                ('style', QVariant.String), ('verts', QVariant.Int),
+                ('src_file', QVariant.String)):
+                fields.append(QgsField(name, field_type))
+            layer = QgsVectorLayer('LineStringZ', feature_group['name'], 'memory')
+            layer.setCrs(target_crs)
+            layer.dataProvider().addAttributes(fields.toList())
+            layer.updateFields()
+            features = []
+            for item in feature_group['features']:
+                vertices = LandXMLImportLogic._transform_3d_points(
+                    item['points'], transform)
+                feature = QgsFeature(fields)
+                feature.setGeometry(QgsGeometry.fromPolyline(
+                    [QgsPoint(x, y, z) for x, y, z in vertices]))
+                feature.setAttributes([
+                    item['name'], item['code'], item['site'], item['layer'],
+                    item['style'], len(vertices), source_name,
+                ])
+                features.append(feature)
+            if not features:
+                continue
+            layer.dataProvider().addFeatures(features)
+            layer.updateExtents()
+            LandXMLImportLogic._store_layer(
+                layer, group, output_mode, output_path, state, results,
+                style_fn=LandXMLImportLogic._style_feature_lines)
+
+    @staticmethod
+    def _import_parcels(file_path, parcel_names, target_crs, transform,
+                        group, source_name, output_mode, output_path, state,
+                        results, report):
+        report("Reading parcels...", 94)
+        parcels = LandXMLParser.parse_parcels(file_path, parcel_names)
+        if not parcels:
+            results['errors'].append("No usable parcels found for the selection.")
+            return
+        fields = QgsFields()
+        for name, field_type in (
+            ('name', QVariant.String), ('descr', QVariant.String),
+            ('area', QVariant.Double), ('verts', QVariant.Int),
+            ('src_file', QVariant.String)):
+            fields.append(QgsField(name, field_type))
+        layer = QgsVectorLayer('PolygonZ', 'Parcels', 'memory')
+        layer.setCrs(target_crs)
+        layer.dataProvider().addAttributes(fields.toList())
+        layer.updateFields()
+        features = []
+        for parcel in parcels:
+            vertices = LandXMLImportLogic._transform_3d_points(
+                parcel['points'], transform)
+            feature = QgsFeature(fields)
+            feature.setGeometry(QgsGeometry.fromPolygon(
+                [[QgsPoint(x, y, z) for x, y, z in vertices]]))
+            feature.setAttributes([
+                parcel['name'], parcel['description'], parcel['area'],
+                len(vertices), source_name,
+            ])
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        LandXMLImportLogic._store_layer(
+            layer, group, output_mode, output_path, state, results,
+            style_fn=LandXMLImportLogic._style_parcels)
+
+    @staticmethod
+    def _style_feature_lines(layer):
+        layer.setRenderer(QgsSingleSymbolRenderer(QgsLineSymbol.createSimple(
+            {'color': '230,120,35,255', 'width': '0.8'})))
+        LandXMLImportLogic._label_layer(layer, 'name')
+
+    @staticmethod
+    def _style_parcels(layer):
+        layer.setRenderer(QgsSingleSymbolRenderer(QgsFillSymbol.createSimple(
+            {'color': '80,120,220,60', 'outline_color': '80,120,220,255',
+             'outline_width': '0.5'})))
+        LandXMLImportLogic._label_layer(layer, 'name')
+
+    # ------------------------------------------------------------------
+    # Pipe networks
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _import_pipe_networks(file_path, network_names, target_crs, transform,
+                              group, root, source_name, output_mode,
+                              output_path, state, results, report):
+        report("Reading pipe networks...", 92)
+        networks = LandXMLParser.parse_pipe_networks(file_path, network_names)
+        for network in networks:
+            network_group_parent = group if group is not None else root
+            network_group = (network_group_parent.findGroup(network['name'])
+                             or network_group_parent.addGroup(network['name']))
+            pipe_layer = LandXMLImportLogic._pipe_layer(
+                network, target_crs, transform, source_name, results)
+            structure_layer = LandXMLImportLogic._structure_layer(
+                network, target_crs, transform, source_name)
+
+            if pipe_layer is not None:
+                LandXMLImportLogic._store_layer(
+                    pipe_layer, network_group, output_mode, output_path, state,
+                    results, style_fn=LandXMLImportLogic._style_pipes)
+            if structure_layer is not None:
+                LandXMLImportLogic._store_layer(
+                    structure_layer, network_group, output_mode, output_path,
+                    state, results, style_fn=LandXMLImportLogic._style_structures)
+
+    @staticmethod
+    def _pipe_layer(network, target_crs, transform, source_name, results):
+        fields = QgsFields()
+        for name, field_type in (
+            ('name', QVariant.String), ('type', QVariant.String),
+            ('descr', QVariant.String), ('start_struct', QVariant.String),
+            ('end_struct', QVariant.String), ('length', QVariant.Double),
+            ('slope', QVariant.Double), ('diameter', QVariant.Double),
+            ('height', QVariant.Double), ('width', QVariant.Double),
+            ('thickness', QVariant.Double), ('network', QVariant.String),
+            ('src_file', QVariant.String)):
+            fields.append(QgsField(name, field_type))
+
+        layer = QgsVectorLayer('LineStringZ', 'Pipes', 'memory')
+        layer.setCrs(target_crs)
+        layer.dataProvider().addAttributes(fields.toList())
+        layer.updateFields()
+        features = []
+        for pipe in network['pipes']:
+            start = network['structure_lookup'].get(pipe['start'])
+            end = network['structure_lookup'].get(pipe['end'])
+            if not start or not end or start['x'] is None or end['x'] is None:
+                results['warnings'].append(
+                    "Pipe '{0}' has an unresolved endpoint and was skipped.".format(
+                        pipe['name']))
+                continue
+            start_xy = LandXMLImportLogic._network_point(start, transform)
+            end_xy = LandXMLImportLogic._network_point(end, transform)
+            start_z = LandXMLImportLogic._pipe_invert(start, pipe['name'])
+            end_z = LandXMLImportLogic._pipe_invert(end, pipe['name'])
+            feature = QgsFeature(fields)
+            feature.setGeometry(QgsGeometry.fromPolyline([
+                QgsPoint(start_xy[0], start_xy[1], start_z),
+                QgsPoint(end_xy[0], end_xy[1], end_z)]))
+            dimensions = pipe['dimensions']
+            feature.setAttributes([
+                pipe['name'], pipe['type'], pipe['description'], pipe['start'],
+                pipe['end'], pipe['length'], pipe['slope'],
+                dimensions.get('diameter'), dimensions.get('height'),
+                dimensions.get('width'), dimensions.get('thickness'),
+                network['name'], source_name,
+            ])
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        return layer if features else None
+
+    @staticmethod
+    def _pipe_invert(structure, pipe_name):
+        for record in structure.get('invert_records', []):
+            if record.get('ref_pipe') == pipe_name:
+                return record['elev']
+        return structure['invert'] if structure['invert'] is not None else 0.0
+
+    @staticmethod
+    def _structure_layer(network, target_crs, transform, source_name):
+        fields = QgsFields()
+        for name, field_type in (
+            ('name', QVariant.String), ('type', QVariant.String),
+            ('descr', QVariant.String), ('rim_elev', QVariant.Double),
+            ('sump_elev', QVariant.Double), ('invert_elev', QVariant.Double),
+            ('diameter', QVariant.Double), ('length', QVariant.Double),
+            ('width', QVariant.Double), ('thickness', QVariant.Double),
+            ('network', QVariant.String), ('src_file', QVariant.String)):
+            fields.append(QgsField(name, field_type))
+
+        layer = QgsVectorLayer('PointZ', 'Structures', 'memory')
+        layer.setCrs(target_crs)
+        layer.dataProvider().addAttributes(fields.toList())
+        layer.updateFields()
+        features = []
+        for structure in network['structures']:
+            if structure['x'] is None:
+                continue
+            x, y = LandXMLImportLogic._network_point(structure, transform)
+            z = structure['rim'] if structure['rim'] is not None else (
+                structure['invert'] or 0.0)
+            dimensions = structure['dimensions']
+            feature = QgsFeature(fields)
+            feature.setGeometry(QgsGeometry(QgsPoint(x, y, z)))
+            feature.setAttributes([
+                structure['name'], structure['type'], structure['description'],
+                structure['rim'], structure['sump'], structure['invert'],
+                dimensions.get('diameter'), dimensions.get('length'),
+                dimensions.get('width'), dimensions.get('thickness'),
+                network['name'], source_name,
+            ])
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        return layer if features else None
+
+    @staticmethod
+    def _network_point(structure, transform):
+        point = QgsPointXY(structure['x'], structure['y'])
+        if transform is not None:
+            point = transform.transform(point)
+        return point.x(), point.y()
+
+    @staticmethod
+    def _style_pipes(layer):
+        layer.setRenderer(QgsSingleSymbolRenderer(QgsLineSymbol.createSimple(
+            {'color': '30,100,190,255', 'width': '0.8'})))
+        LandXMLImportLogic._label_layer(layer, 'name')
+
+    @staticmethod
+    def _style_structures(layer):
+        layer.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
+            {'name': 'circle', 'color': '220,90,45,255',
+             'outline_color': '55,30,20,255', 'size': '3.0'})))
+        LandXMLImportLogic._label_layer(layer, 'name')
+
+    @staticmethod
+    def _label_layer(layer, field_name):
+        settings = QgsPalLayerSettings()
+        settings.fieldName = field_name
+        text_format = QgsTextFormat()
+        text_format.setSize(8)
+        settings.setFormat(text_format)
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+        layer.setLabelsEnabled(True)
 
     # ------------------------------------------------------------------
     # Points
@@ -630,6 +1059,16 @@ class LandXMLImportLogic:
         for x, y in points:
             pt = transform.transform(QgsPointXY(x, y))
             converted.append((pt.x(), pt.y()))
+        return converted
+
+    @staticmethod
+    def _transform_3d_points(points, transform):
+        if transform is None:
+            return list(points)
+        converted = []
+        for x, y, z in points:
+            projected = transform.transform(QgsPointXY(x, y))
+            converted.append((projected.x(), projected.y(), z))
         return converted
 
     @staticmethod

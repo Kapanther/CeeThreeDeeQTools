@@ -23,9 +23,10 @@ from qgis.PyQt.QtWidgets import (
     QMenu,
     QTextEdit,
     QToolBar,
+    QToolButton,
     QAction
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QEvent
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QSettings, QEvent, QSize
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
     QgsProject
@@ -174,6 +175,7 @@ class LayersAdvancedDialog(QDockWidget):
         
         # Layer tree widget
         self.layer_tree = DraggableTreeWidget()
+        self.layer_tree.setIconSize(QSize(32, 20))
         self.layer_tree.setHeaderLabels(["Layer Name", "Type", "Features/Size", "CRS", "File Type", "File Size", "Source"])
         self.layer_tree.setColumnWidth(0, 200)
         self.layer_tree.setColumnWidth(1, 80)
@@ -257,13 +259,20 @@ class LayersAdvancedDialog(QDockWidget):
         # Debug console
         debug_layout = QVBoxLayout()
         debug_header = QHBoxLayout()
-        debug_label = QLabel("<b>Debug Console:</b>")
-        debug_header.addWidget(debug_label)
+        self.debug_toggle = QToolButton()
+        self.debug_toggle.setText("Debug Console")
+        self.debug_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.debug_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.debug_toggle.setCheckable(True)
+        self.debug_toggle.toggled.connect(self.toggle_debug_console)
+        debug_header.addWidget(self.debug_toggle)
+        debug_header.addStretch()
         
-        clear_debug_btn = QPushButton("Clear")
-        clear_debug_btn.setMaximumWidth(60)
-        clear_debug_btn.clicked.connect(self.clear_debug)
-        debug_header.addWidget(clear_debug_btn)
+        self.clear_debug_btn = QPushButton("Clear")
+        self.clear_debug_btn.setMaximumWidth(60)
+        self.clear_debug_btn.clicked.connect(self.clear_debug)
+        self.clear_debug_btn.setVisible(False)
+        debug_header.addWidget(self.clear_debug_btn)
         
         debug_layout.addLayout(debug_header)
         
@@ -271,12 +280,18 @@ class LayersAdvancedDialog(QDockWidget):
         self.debug_console.setReadOnly(True)
         self.debug_console.setMaximumHeight(100)
         self.debug_console.setStyleSheet("")  # Use default QGIS theme styling
+        self.debug_console.setVisible(False)
         debug_layout.addWidget(self.debug_console)
         
         layout.addLayout(debug_layout)
         
         # Initial debug message
         self.log_debug("LayersAdvanced panel initialized")
+
+    def toggle_debug_console(self, expanded):
+        self.debug_toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.debug_console.setVisible(expanded)
+        self.clear_debug_btn.setVisible(expanded)
     
     def log_debug(self, message):
         """Add a message to the debug console."""
@@ -333,16 +348,12 @@ class LayersAdvancedDialog(QDockWidget):
         self.log_debug(f"    _updating_visibility = {self._updating_visibility}")
         
         if not self._updating_visibility:
-            # For rasters, we need to rebuild symbology items (gradient/discrete list changes)
-            # For vectors, we can just update checkboxes
             if sender:
-                from qgis.core import QgsRasterLayer
-                if isinstance(sender, QgsRasterLayer):
-                    self.log_debug(f"    → Detected QgsRasterLayer, calling update_layer_symbology_items()")
+                from qgis.core import QgsRasterLayer, QgsVectorLayer
+                if isinstance(sender, (QgsRasterLayer, QgsVectorLayer)):
                     self.update_layer_symbology_items(sender)
                 else:
-                    self.log_debug(f"    → Detected vector layer, calling update_layer_symbology_checkboxes()")
-                    self.update_layer_symbology_checkboxes(sender)
+                    self.refresh_layers()
             else:
                 self.log_debug(f"    → No sender, calling refresh_layers()")
                 self.refresh_layers()
@@ -440,8 +451,7 @@ class LayersAdvancedDialog(QDockWidget):
     
     def update_layer_symbology_items(self, layer):
         """
-        Update symbology child items for a specific raster layer.
-        Used when raster renderer/interpolation changes.
+        Update symbology items for a layer after its renderer changes.
         """
         self.log_debug(f"\n=== update_layer_symbology_items() called for {layer.name()} ===")
         self.log_debug(f"    Layer ID: {layer.id()}")
@@ -465,11 +475,15 @@ class LayersAdvancedDialog(QDockWidget):
             self.log_debug(f"    Removed {removed_count} existing children")
             
             # Rebuild symbology items for this layer
-            from qgis.core import QgsRasterLayer
+            from qgis.core import QgsRasterLayer, QgsVectorLayer
             if isinstance(layer, QgsRasterLayer):
                 self.log_debug(f"    Calling LayerTreeBuilder.add_raster_symbology_items()...")
                 LayerTreeBuilder.add_raster_symbology_items(layer, layer_item, self)
                 self.log_debug(f"    ✓ Rebuilt raster symbology for {layer.name()}, new child count: {layer_item.childCount()}")
+            elif isinstance(layer, QgsVectorLayer):
+                layer_item.setIcon(0, LayerTreeBuilder.get_layer_icon(layer))
+                layer_node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
+                LayerTreeBuilder.add_symbology_items(layer, layer_item, layer_node)
             
         except Exception as e:
             self.log_debug(f"    ✗ ERROR updating symbology items: {e}")
@@ -754,7 +768,7 @@ class LayersAdvancedDialog(QDockWidget):
             finally:
                 self._updating_selection = False
         
-        elif item_type in ["category", "range", "rule"]:
+        elif item_type in ["category", "range", "rule", "legend"]:
             # For symbology items, select the parent layer
             parent = item.parent()
             if parent and parent.data(0, Qt.ItemDataRole.UserRole + 1) == "layer":
@@ -874,7 +888,8 @@ class LayersAdvancedDialog(QDockWidget):
                     item_id = item.data(0, Qt.ItemDataRole.UserRole)
                     
                     # Set checkbox
-                    item.setCheckState(0, Qt.CheckState.Checked)
+                    if item_type != "legend":
+                        item.setCheckState(0, Qt.CheckState.Checked)
                     
                     # Update visibility in QGIS
                     if item_type == "layer":
@@ -920,7 +935,8 @@ class LayersAdvancedDialog(QDockWidget):
                     item_id = item.data(0, Qt.ItemDataRole.UserRole)
                     
                     # Set checkbox
-                    item.setCheckState(0, Qt.CheckState.Unchecked)
+                    if item_type != "legend":
+                        item.setCheckState(0, Qt.CheckState.Unchecked)
                     
                     # Update visibility in QGIS
                     if item_type == "layer":
@@ -956,6 +972,9 @@ class LayersAdvancedDialog(QDockWidget):
             for item in selected_items:
                 item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
                 item_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+                if item_type == "legend":
+                    continue
                 
                 # Set checkbox state
                 item.setCheckState(0, Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)

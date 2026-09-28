@@ -45,7 +45,7 @@ from qgis.core import (
     QgsProcessingOutputLayerDefinition,  # import for registering output layer details
 )
 from qgis.utils import iface  # Import iface to access the map canvas
-from qgis.PyQt.QtCore import QCoreApplication, QMetaType
+from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from ..ctdq_support import ctdprocessing_command_info, ctdprocessing_settingsdefaults, CTDQSupport
 from .ctdq_AlgoSymbology import PostVectorSymbology  # Import the symbology class (use ctdq_AlgoSymbology.py)
 from .ctdq_AlgoRun import ctdqAlgoRun  # Import the missing base class
@@ -242,13 +242,13 @@ class CalculateStageStoragePond(ctdqAlgoRun):
             output_fields.append(f)
             src_field_names_lower.append(f.name().lower())
         # Create fields using QMetaType
-        output_fields.append(QgsField("ssMIN", QMetaType.Double))
-        output_fields.append(QgsField("ssMAX", QMetaType.Double))  # ssMAX will be overridden with RLmax
-        output_fields.append(QgsField("ssAREA", QMetaType.Double))
-        output_fields.append(QgsField("ssINCVOL", QMetaType.Double))
-        output_fields.append(QgsField("ssCUMVOL", QMetaType.Double))
-        output_fields.append(QgsField("ssMINDPTH", QMetaType.Double))  # New field for minimum depth
-        output_fields.append(QgsField("ssMAXDPTH", QMetaType.Double))  # New field for maximum depth
+        output_fields.append(QgsField("ssMIN", QVariant.Double))
+        output_fields.append(QgsField("ssMAX", QVariant.Double))  # ssMAX will be overridden with RLmax
+        output_fields.append(QgsField("ssAREA", QVariant.Double))
+        output_fields.append(QgsField("ssINCVOL", QVariant.Double))
+        output_fields.append(QgsField("ssCUMVOL", QVariant.Double))
+        output_fields.append(QgsField("ssMINDPTH", QVariant.Double))  # New field for minimum depth
+        output_fields.append(QgsField("ssMAXDPTH", QVariant.Double))  # New field for maximum depth
         save_opts = QgsVectorFileWriter.SaveVectorOptions()
         save_opts.driverName = "GPKG"
         save_opts.fileEncoding = "utf-8"

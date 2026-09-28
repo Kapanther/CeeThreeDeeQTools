@@ -42,6 +42,47 @@
 			],
 			"isBackground": false,
 			"problemMatcher": []
+		},
+		{
+			"label": "Run Unit Tests",
+			"type": "process",
+			"command": "C:\\Program Files\\QGIS 3.44.13\\bin\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-q"
+			],
+			"isBackground": false,
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Run Unit Tests Verbose",
+			"type": "process",
+			"command": "C:\\Program Files\\QGIS 3.44.13\\bin\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-v"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Run Unit Tests with Coverage",
+			"type": "process",
+			"command": "C:\\Program Files\\QGIS 3.44.13\\bin\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

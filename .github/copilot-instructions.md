@@ -52,7 +52,9 @@ All custom tools follow this pattern:
 - **Makefile**: Legacy GNU Make targets (deploy, package, upload) - less commonly used on Windows
 
 ### Testing & Debugging
-- No automated test suite currently
+- Automated pytest suite: run `python -m pytest -q` from the repository root.
+- Coverage: run `python -m pytest --cov --cov-report=term-missing`.
+- Test guidance and fixture conventions are documented in `tests/README.md`.
 - Manual testing: Deploy with `Debug.bat`, use Plugin Reloader plugin in QGIS to refresh the plugin (faster than restarting QGIS)
 - Plugin Reloader: Install from QGIS Plugin Manager - allows hot-reloading of plugins during development without closing QGIS
 - Alternative: Restart QGIS after deployment for full clean reload

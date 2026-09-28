@@ -744,19 +744,21 @@ class CatchmentsAndStreams(ctdqAlgoRun):
         return feature.geometry() is not None and not feature.geometry().isNull() and feature.geometry().isGeosValid()
 
     def get_start_point(self, geometry):
-        if geometry.type() == QgsWkbTypes.LineGeometry:
-            return geometry.asPolyline()[0] if geometry.asPolyline() else None
-        elif geometry.type() == QgsWkbTypes.MultiLineGeometry:
+        if geometry.isMultipart():
             lines = geometry.asMultiPolyline()
             return lines[0][0] if lines else None
+        if geometry.type() == QgsWkbTypes.LineGeometry:
+            line = geometry.asPolyline()
+            return line[0] if line else None
         return None
 
     def get_end_point(self, geometry):
-        if geometry.type() == QgsWkbTypes.LineGeometry:
-            return geometry.asPolyline()[-1] if geometry.asPolyline() else None
-        elif geometry.type() == QgsWkbTypes.MultiLineGeometry:
+        if geometry.isMultipart():
             lines = geometry.asMultiPolyline()
             return lines[-1][-1] if lines else None
+        if geometry.type() == QgsWkbTypes.LineGeometry:
+            line = geometry.asPolyline()
+            return line[-1] if line else None
         return None
 
     def get_nearby_features(self, point, index, layer):

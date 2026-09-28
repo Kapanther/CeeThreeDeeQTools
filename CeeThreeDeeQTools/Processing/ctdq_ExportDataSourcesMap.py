@@ -33,6 +33,7 @@ from qgis.core import (
     QgsCoordinateTransformContext,
     QgsProcessingUtils,
     QgsRasterLayer,  # Import QgsRasterLayer for raster support
+    QgsRectangle,
 )
 from qgis.utils import iface  # Import iface to access the map canvas
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
@@ -122,7 +123,10 @@ class ExportDataSourcesMap(QgsProcessingAlgorithm):
             feedback.pushInfo(f"Using map canvas extent: {current_extent.toString()}")
         else:
             feedback.pushInfo("Map canvas not available. Using project's full extent as fallback.")
-            current_extent = project.extent()
+            current_extent = QgsRectangle()
+            for layer in layers:
+                if isinstance(layer, (QgsVectorLayer, QgsRasterLayer)) and layer.isValid():
+                    current_extent.combineExtentWith(layer.extent())
 
         # Iterate through all layers in the project
         for layer in layers:

@@ -9,6 +9,8 @@
 ***************************************************************************
 """
 
+import html
+
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -36,7 +38,7 @@ ZOOM_SOURCE_SPECIFY = 'specify'
 class RefreshLayersDialog(QDialog):
     """Confirms a refresh and lets the user keep or replace the stored extent/zoom."""
 
-    def __init__(self, layer_count, parent=None, title="Refresh Vector Layers",
+    def __init__(self, layer_names, parent=None, title="Refresh Vector Layers",
                  show_zoom=False, canvas_zoom=0):
         super().__init__(parent)
 
@@ -48,9 +50,10 @@ class RefreshLayersDialog(QDialog):
 
         layout = QVBoxLayout()
 
+        names_html = "<br>".join(f"&nbsp;&nbsp;• {html.escape(name)}" for name in layer_names)
         warning = QLabel(
-            f"<b>Warning:</b> all {layer_count} connected layer(s) will be re-extracted "
-            "from their original data sources.<br><br>"
+            f"<b>Warning:</b> the following {len(layer_names)} connected layer(s) will be "
+            f"re-extracted from their original data sources:<br>{names_html}<br><br>"
             "The data currently held in these layers will be <b>replaced</b> and any local "
             "edits will be lost. Styling and connection metadata are preserved."
         )

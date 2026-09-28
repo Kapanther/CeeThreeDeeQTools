@@ -15,3 +15,20 @@ A compact suite of QGIS processing utilities designed for civil and geospatial e
 - **Project Validation Report**: Compares the current QGIS project layers against an Excel inventory of data sources and flags mismatches or missing files — useful for quality control in large or collaborative projects.
 - **Mirror Project Tool**: Synchronizes layers, map themes, and print layouts from a master QGIS project to multiple child projects. Updates data sources, symbology, layer order, and group structure while preserving child-specific settings like layer filters and manually adjusted label positions (auxiliary storage). Ideal for maintaining consistency across multiple related projects or project variants.
 - **Package Layer Updater**: Updates layers in geopackage files with data from the active QGIS project. Tracks update history and modification dates, supports both vector and raster layers, and can skip unchanged layers or fix duplicate FID values. Perfect for maintaining synchronized geopackage archives or distributing data updates to field teams.
+
+## Tests
+
+The repository includes a QGIS-independent pytest suite for the LandXML parser
+and vertical-profile calculations. Install the development dependencies and run
+the same command used by GitHub Actions:
+
+```text
+python -m pip install -r requirements-dev.txt
+python -m pytest --cov --cov-report=term-missing
+```
+
+Tests live in `tests/` and are not included in plugin release packages. Tests
+that create QGIS layers, run Processing algorithms, or exercise Qt dialogs have
+additional environment requirements. See [`tests/README.md`](tests/README.md)
+for test structure, fixtures, QGIS-specific guidance, and the workflow for
+adding regression tests.
