@@ -44,7 +44,6 @@
 			"problemMatcher": []
 		},
 		{
-<<<<<<< HEAD
 			"label": "Run Unit Tests",
 			"type": "process",
 			"command": "C:\\Program Files\\QGIS 3.44.13\\bin\\python.exe",
@@ -81,7 +80,6 @@
 				"pytest",
 				"--cov",
 				"--cov-report=term-missing"
-=======
 			"label": "Run PyQGIS 4 Checker (Dry Run)",
 			"type": "shell",
 			"command": "docker",
@@ -100,7 +98,6 @@
 				"--logfile",
 				"/workspace/pyqt6_checker.log",
 				"/workspace/CeeThreeDeeQTools"
->>>>>>> ff989f894e212eb260eb4fbb24a52876a873ade4
 			],
 			"isBackground": false,
 			"problemMatcher": []
