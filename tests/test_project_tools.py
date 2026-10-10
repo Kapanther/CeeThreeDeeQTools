@@ -40,6 +40,9 @@ from CeeThreeDeeQTools.Tools.ValidateProjectReport.ctdq_ValidateProjectReportJso
     JsonSourceError,
     ValidateProjectReportJsonSource,
 )
+from CeeThreeDeeQTools.Tools.ValidateProjectReport.ctdq_ValidateProjectReportLogic import (
+    ValidateProjectReportLogic,
+)
 from CeeThreeDeeQTools.Tools.ValidateProjectReport.ctdq_ValidateProjectReportSettings import (
     ValidateProjectReportSettingsMixin,
 )
@@ -277,13 +280,23 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
     )
     validation_layer.updateFields()
     target_layer = _make_layer(name="roads")
+    wrong_source_layer = QgsVectorLayer(
+        "Point?crs=EPSG:4326", "roads", "memory"
+    )
+    missing_index_name = "not_loaded"
     feature = QgsFeature(validation_layer.fields())
     feature.setAttributes(
         ["roads", target_layer.dataProvider().dataSourceUri()]
     )
     validation_layer.dataProvider().addFeature(feature)
+    feature = QgsFeature(validation_layer.fields())
+    feature.setAttributes(
+        [missing_index_name, "C:/data/not_loaded.gpkg"]
+    )
+    validation_layer.dataProvider().addFeature(feature)
     project.addMapLayer(validation_layer)
     project.addMapLayer(target_layer)
+    project.addMapLayer(wrong_source_layer)
     monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: None)
     monkeypatch.setattr(QMessageBox, "critical", lambda *args: None)
@@ -307,9 +320,46 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
 
         report = (tmp_path / "validation.csv").read_text(encoding="utf-8")
         assert html_report_path.exists()
+        assert dialog.page_stack.currentWidget() is dialog.results_page
+        assert (
+            dialog.return_to_settings_button.text()
+            == "<< Return to Validate Report Settings"
+        )
+        assert dialog.data_sources_table.rowCount() == 3
+        wrong_source_row = next(
+            row
+            for row in range(dialog.data_sources_table.rowCount())
+            if dialog.data_sources_table.item(row, 0).text() == "roads"
+            and dialog.data_sources_table.item(row, 1).text() == "WRONGSOURCE"
+        )
+        assert ValidateProjectReportLogic.normalize_path(
+            dialog.data_sources_table.item(wrong_source_row, 3).text(), False
+        ) == ValidateProjectReportLogic.normalize_path(
+            target_layer.dataProvider().dataSourceUri(), False
+        )
+        assert dialog.missing_sources_table.rowCount() == 1
+        assert dialog.missing_sources_table.item(0, 0).text() == missing_index_name
+        assert dialog.fix_wrong_sources_button.text() == "Fix Wrong Source Errors (1)"
+        assert dialog.fix_wrong_sources_button.isEnabled()
+        dialog.return_to_settings_button.click()
+        assert dialog.page_stack.currentWidget() is dialog.settings_page
+        dialog.page_stack.setCurrentWidget(dialog.results_page)
+        dialog.fix_wrong_sources_button.click()
+        assert dialog.data_sources_table.item(wrong_source_row, 1).text() == "MATCHED"
+        assert not dialog.fix_wrong_sources_button.isEnabled()
+        assert wrong_source_layer.isValid()
+        assert ValidateProjectReportLogic.normalize_path(
+            wrong_source_layer.dataProvider().dataSourceUri(), False
+        ) == ValidateProjectReportLogic.normalize_path(
+            target_layer.dataProvider().dataSourceUri(), False
+        )
+        updated_csv = (tmp_path / "validation.csv").read_text(encoding="utf-8")
+        updated_html = html_report_path.read_text(encoding="utf-8")
+        assert "DATASOURCES_WRONGSOURCE=0" in updated_csv
+        assert "class='wrongsource'" not in updated_html
         assert "ValidationSourceType=Project Layer" in report
         assert "ValidationProjectLayerName=validation rows" in report
-        assert "roads,MATCHED," in report
+        assert "roads,WRONGSOURCE," in report
         assert "DATASOURCES_MATCHED=1" in report
         assert project.readEntry(
             "ValidateProjectReportDialog", "report_path"
@@ -320,6 +370,7 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
     finally:
         project.removeMapLayer(validation_layer.id())
         project.removeMapLayer(target_layer.id())
+        project.removeMapLayer(wrong_source_layer.id())
 
 
 def test_validate_project_report_json_source_parses_common_record_shapes():

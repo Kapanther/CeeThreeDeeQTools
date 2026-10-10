@@ -53,11 +53,39 @@ class ValidateProjectReportLogic:
                 normalized_source_path = cls.normalize_path(source_path, case_sensitive)
                 possible_layers[normalized_layer_name] = {
                     "original_layer_name": layer_name,
+                    "original_source_path": str(source_path),
                     "source_path": normalized_source_path,
                     "category1": category1,
                     "category2": category2,
                 }
         return possible_layers
+
+    @classmethod
+    def wrong_source_fixes(
+        cls,
+        project_layers,
+        possible_layers,
+        layer_name_delimiter,
+        case_sensitive,
+    ):
+        """Return project layers whose matching index row supplies another source."""
+        fixes = []
+        for layer in project_layers.values():
+            normalized_layer_name = cls.normalize_path(layer.name(), case_sensitive)
+            if layer_name_delimiter in normalized_layer_name:
+                normalized_layer_name = normalized_layer_name.split(
+                    layer_name_delimiter, 1
+                )[0]
+
+            reference = possible_layers.get(normalized_layer_name)
+            if reference is None:
+                continue
+            current_source = cls.normalize_path(
+                layer.dataProvider().dataSourceUri(), case_sensitive
+            )
+            if current_source != reference["source_path"]:
+                fixes.append((layer, reference["original_source_path"]))
+        return fixes
 
     @classmethod
     def validate_project_layers(

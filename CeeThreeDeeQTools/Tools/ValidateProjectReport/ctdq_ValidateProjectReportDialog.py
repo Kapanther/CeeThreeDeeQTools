@@ -1,4 +1,4 @@
-from qgis.PyQt.QtWidgets import QAbstractItemView, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView
+from qgis.PyQt.QtWidgets import QAbstractItemView, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget, QTabWidget
 import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsApplication, QgsProject, QgsVectorLayer
@@ -46,11 +46,13 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self._json_records_cache = []
         self._report_path_is_temporary = False
         self._updating_report_path = False
+        self._wrong_source_fixes = []
 
         outer_layout = QHBoxLayout(self)
+        self.page_stack = QStackedWidget(self)
         content_widget = QWidget(self)
         layout = QVBoxLayout(content_widget)
-        outer_layout.addWidget(content_widget, 4)
+        outer_layout.addWidget(self.page_stack, 4)
 
         self.intro_panel = QTextBrowser(self)
         self.intro_panel.setReadOnly(True)
@@ -393,10 +395,162 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             self.duplicate_match_combo,
         ]
         self.set_validation_selections_enabled(False)
+        self.page_stack.addWidget(content_widget)
+        self.settings_page = content_widget
+        self.create_results_page()
 
         # Show the dialog immediately and restore cached selections in the background
         self.show()
         self.restore_cached_selections_with_progress()
+
+    def create_results_page(self):
+        self.results_page = QWidget(self)
+        results_layout = QVBoxLayout(self.results_page)
+
+        self.return_to_settings_button = QPushButton(
+            "<< Return to Validate Report Settings", self.results_page
+        )
+        self.return_to_settings_button.clicked.connect(
+            lambda: self.page_stack.setCurrentWidget(self.settings_page)
+        )
+        results_layout.addWidget(self.return_to_settings_button)
+
+        self.results_tabs = QTabWidget(self.results_page)
+        results_layout.addWidget(self.results_tabs)
+
+        data_sources_tab = QWidget(self.results_tabs)
+        data_sources_layout = QVBoxLayout(data_sources_tab)
+        self.fix_wrong_sources_button = QPushButton(
+            "Fix Wrong Source Errors (0)", data_sources_tab
+        )
+        self.fix_wrong_sources_button.setEnabled(False)
+        self.fix_wrong_sources_button.clicked.connect(self.fix_wrong_source_errors)
+        data_sources_layout.addWidget(self.fix_wrong_sources_button)
+        self.data_sources_table = self.create_results_table(
+            data_sources_tab,
+            (
+                "Layer Name",
+                "Check Result",
+                "Layer Source",
+                "Reference Source",
+                "Filter Category",
+                "Second Filter Category",
+            ),
+        )
+        data_sources_layout.addWidget(self.data_sources_table)
+        self.results_tabs.addTab(data_sources_tab, "Data Sources")
+
+        missing_sources_tab = QWidget(self.results_tabs)
+        missing_sources_layout = QVBoxLayout(missing_sources_tab)
+        self.missing_sources_table = self.create_results_table(
+            missing_sources_tab,
+            (
+                "Layer Name",
+                "Source Path",
+                "Filter Category",
+                "Second Filter Category",
+            ),
+        )
+        missing_sources_layout.addWidget(self.missing_sources_table)
+        self.results_tabs.addTab(missing_sources_tab, "Missing Index Sources")
+        self.page_stack.addWidget(self.results_page)
+
+    @staticmethod
+    def create_results_table(parent, headers):
+        table = QTableWidget(parent)
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.setWordWrap(False)
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        table.horizontalHeader().setStretchLastSection(True)
+        return table
+
+    @staticmethod
+    def set_table_rows(table, rows):
+        table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            for column_index, value in enumerate(row):
+                item = QTableWidgetItem("" if value is None else str(value))
+                table.setItem(row_index, column_index, item)
+        table.resizeRowsToContents()
+
+    def show_validation_results(self, html_rows, unmatched_layers, wrong_source_fixes):
+        self.set_table_rows(self.data_sources_table, html_rows)
+        missing_rows = [
+            (
+                item["original_layer_name"],
+                item["source_path"],
+                item["category1"],
+                item["category2"],
+            )
+            for item in unmatched_layers.values()
+        ]
+        self.set_table_rows(self.missing_sources_table, missing_rows)
+        self._wrong_source_fixes = wrong_source_fixes
+        fix_count = len(wrong_source_fixes)
+        self.fix_wrong_sources_button.setText(
+            f"Fix Wrong Source Errors ({fix_count})"
+        )
+        self.fix_wrong_sources_button.setEnabled(fix_count > 0)
+        self.page_stack.setCurrentWidget(self.results_page)
+
+    def fix_wrong_source_errors(self):
+        if not self._wrong_source_fixes:
+            return
+
+        fixed_count = 0
+        failures = []
+        for layer, reference_source in self._wrong_source_fixes:
+            previous_source = layer.dataProvider().dataSourceUri()
+            try:
+                layer.setDataSource(
+                    reference_source, layer.name(), layer.providerType()
+                )
+                expected_source = ValidateProjectReportLogic.normalize_path(
+                    reference_source,
+                    self.case_sensitive_checkbox.isChecked(),
+                )
+                actual_source = ValidateProjectReportLogic.normalize_path(
+                    layer.dataProvider().dataSourceUri(),
+                    self.case_sensitive_checkbox.isChecked(),
+                )
+                if not layer.isValid() or actual_source != expected_source:
+                    raise RuntimeError(
+                        "The layer did not load from the requested source."
+                    )
+                fixed_count += 1
+            except Exception as exc:
+                try:
+                    layer.setDataSource(
+                        previous_source, layer.name(), layer.providerType()
+                    )
+                except Exception as rollback_exc:
+                    failures.append(
+                        f"{layer.name()}: {exc}; restoring its previous source "
+                        f"also failed: {rollback_exc}"
+                    )
+                else:
+                    failures.append(f"{layer.name()}: {exc}")
+
+        self.validate_project()
+        if failures:
+            QMessageBox.warning(
+                self,
+                "Source Fix Results",
+                f"Fixed {fixed_count} layer(s). Some sources could not be fixed:\n\n"
+                + "\n".join(failures),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Source Fix Results",
+                f"Fixed {fixed_count} layer(s). The report and results have been updated.",
+            )
 
     def create_info_button(self, tooltip):
         button = QToolButton(self)
@@ -1132,6 +1286,12 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     message, debug=True
                 ),
             )
+            wrong_source_fixes = ValidateProjectReportLogic.wrong_source_fixes(
+                QgsProject.instance().mapLayers(),
+                possible_layers,
+                layer_name_delimiter,
+                case_sensitive_matching,
+            )
 
             self.log_message(f"Unmatched layers after validation: {unmatched_layers}", debug=True)
 
@@ -1195,6 +1355,9 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             if csv_report_path:
                 self.log_message_link("CSV report written to:", csv_report_path)
 
+            self.show_validation_results(
+                html_rows, unmatched_layers, wrong_source_fixes
+            )
             QMessageBox.information(self, "Validation Complete", "Validation report generated successfully.")
         except Exception as e:
             # Capture the traceback details
