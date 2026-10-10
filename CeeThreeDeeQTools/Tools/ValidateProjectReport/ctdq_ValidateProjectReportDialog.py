@@ -1,4 +1,4 @@
-from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser
+from qgis.PyQt.QtWidgets import QAbstractItemView, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView
 import openpyxl
 from openpyxl import load_workbook
 from qgis.core import QgsApplication, QgsProject, QgsVectorLayer
@@ -121,11 +121,19 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         json_auth_layout.addWidget(self.json_auth_config_select)
         json_source_layout.addLayout(json_auth_layout)
 
+        json_actions_layout = QHBoxLayout()
         self.check_json_connection_button = QPushButton(
             "Check Connection", self.json_source_widget
         )
         self.check_json_connection_button.clicked.connect(self.check_json_connection)
-        json_source_layout.addWidget(self.check_json_connection_button)
+        self.json_preview_button = QPushButton(
+            "Preview Data Table", self.json_source_widget
+        )
+        self.json_preview_button.setEnabled(False)
+        self.json_preview_button.clicked.connect(self.preview_json_data)
+        json_actions_layout.addWidget(self.check_json_connection_button)
+        json_actions_layout.addWidget(self.json_preview_button)
+        json_source_layout.addLayout(json_actions_layout)
         layout.addWidget(self.json_source_widget)
 
         # Excel file selection
@@ -521,6 +529,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         return self._json_records_cache
 
     def clear_source_fields(self):
+        self.json_preview_button.setEnabled(False)
         self.set_validation_selections_enabled(False)
         for combo in (
             self.layer_name_combo,
@@ -577,6 +586,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             self.clear_source_fields()
             return False
         self.set_source_fields(fields)
+        self.json_preview_button.setEnabled(True)
         self.log_message(
             f"JSON source loaded: {len(records)} records, {len(fields)} fields.",
             debug=True,
@@ -605,6 +615,55 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 f"Loaded {len(records)} JSON records with {field_count} fields.",
             )
 
+    def preview_json_data(self):
+        if self.source_mode_combo.currentText() != "Online JSON Source":
+            return
+        if not self.populate_json_fields(force_refresh=True, show_errors=True):
+            return
+
+        records = self._json_records_cache
+        fields = list(dict.fromkeys(field for record in records for field in record))
+        if not records or not fields:
+            QMessageBox.information(
+                self, "JSON Data Preview", "The JSON source contains no previewable data."
+            )
+            return
+
+        preview_dialog = QDialog(self)
+        preview_dialog.setWindowTitle("JSON Data Preview")
+        preview_dialog.resize(900, 600)
+        preview_layout = QVBoxLayout(preview_dialog)
+        preview_layout.addWidget(
+            QLabel(f"Previewing {len(records)} records across {len(fields)} fields.")
+        )
+
+        table = QTableWidget(len(records), len(fields), preview_dialog)
+        table.setHorizontalHeaderLabels(fields)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        for row_index, record in enumerate(records):
+            for column_index, field in enumerate(fields):
+                value = record.get(field)
+                table.setItem(
+                    row_index,
+                    column_index,
+                    QTableWidgetItem("" if value is None else str(value)),
+                )
+        table.resizeColumnsToContents()
+        for column_index in range(len(fields)):
+            if table.columnWidth(column_index) > 400:
+                table.setColumnWidth(column_index, 400)
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        preview_layout.addWidget(table)
+
+        close_button = QPushButton("Close", preview_dialog)
+        close_button.clicked.connect(preview_dialog.accept)
+        preview_layout.addWidget(close_button)
+        preview_dialog.exec()
+
     def save_selected_project_layer(self, _index=None):
         layer = self.selected_project_layer()
         self.save_cached_value("project_layer_id", layer.id() if layer else "")
@@ -619,6 +678,8 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             mode == "Excel Workbook"
         )
         self.json_source_widget.setVisible(use_json_source)
+        if not use_json_source:
+            self.json_preview_button.setEnabled(False)
         if use_project_layer:
             self.populate_project_layer_fields()
         elif use_json_source:

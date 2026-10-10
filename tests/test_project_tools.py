@@ -18,9 +18,11 @@ from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QLineEdit,
     QMessageBox,
     QSpinBox,
+    QTableWidget,
 )
 
 from processing.core.Processing import Processing
@@ -406,9 +408,28 @@ def test_validate_project_report_fetches_json_and_checks_connection(
         )
         dialog.source_mode_combo.setCurrentText("Online JSON Source")
         assert not dialog.layer_name_combo.isEnabled()
+        assert not dialog.json_preview_button.isEnabled()
         dialog.json_url_edit.setText(f"http://127.0.0.1:{server.server_port}/records")
         dialog.check_json_connection()
         assert dialog.layer_name_combo.isEnabled()
+        assert dialog.json_preview_button.isEnabled()
+        preview_dialogs = []
+
+        def capture_preview(preview_dialog):
+            preview_dialogs.append(preview_dialog)
+            return 0
+
+        monkeypatch.setattr(QDialog, "exec", capture_preview)
+        dialog.json_preview_button.click()
+        preview_table = preview_dialogs[0].findChild(QTableWidget)
+        assert preview_table.columnCount() == 2
+        assert preview_table.horizontalHeaderItem(0).text() == "Layer Name"
+        assert preview_table.horizontalHeaderItem(1).text() == "Source Path"
+        assert preview_table.item(0, 0).text() == "roads"
+        assert (
+            preview_table.item(0, 1).text()
+            == target_layer.dataProvider().dataSourceUri()
+        )
         dialog.filter_category_combo1.setCurrentText("Layer Name")
         restored_filter_options = {
             "use_filter_category1": "True",
