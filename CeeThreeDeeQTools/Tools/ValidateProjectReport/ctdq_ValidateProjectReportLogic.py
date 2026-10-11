@@ -35,16 +35,28 @@ class ValidateProjectReportLogic:
         selected_categories1,
         use_filter2,
         selected_categories2,
+        use_filter3,
+        selected_categories3,
         case_sensitive,
     ):
         possible_layers = {}
-        for layer_name, source_path, category1, category2 in source_rows:
+        for (
+            layer_name,
+            source_path,
+            category1,
+            category2,
+            category3,
+        ) in source_rows:
             if use_filter1 and (
                 not category1 or str(category1) not in selected_categories1
             ):
                 continue
             if use_filter2 and (
                 not category2 or str(category2) not in selected_categories2
+            ):
+                continue
+            if use_filter3 and (
+                not category3 or str(category3) not in selected_categories3
             ):
                 continue
 
@@ -57,6 +69,7 @@ class ValidateProjectReportLogic:
                     "source_path": normalized_source_path,
                     "category1": category1,
                     "category2": category2,
+                    "category3": category3,
                 }
         return possible_layers
 
@@ -120,10 +133,14 @@ class ValidateProjectReportLogic:
             normalized_layer_source = cls.normalize_path(layer_source, case_sensitive)
 
             if normalized_layer_name in possible_layers:
-                reference_source = possible_layers[normalized_layer_name]["source_path"]
+                reference = possible_layers[normalized_layer_name]
+                reference_source = reference[
+                    "original_source_path"
+                ]
                 category1 = possible_layers[normalized_layer_name]["category1"]
                 category2 = possible_layers[normalized_layer_name]["category2"]
-                if normalized_layer_source == reference_source:
+                category3 = possible_layers[normalized_layer_name]["category3"]
+                if normalized_layer_source == reference["source_path"]:
                     check_result = "MATCHED"
                     matched_count += 1
                 else:
@@ -134,6 +151,7 @@ class ValidateProjectReportLogic:
                 reference_source = ""
                 category1 = ""
                 category2 = ""
+                category3 = ""
                 check_result = "LAYERNAMENOTFOUND"
                 layer_name_not_found_count += 1
 
@@ -147,10 +165,11 @@ class ValidateProjectReportLogic:
                 (
                     layer_name,
                     check_result,
-                    normalized_layer_source,
+                    layer_source,
                     reference_source,
                     category1,
                     category2,
+                    category3,
                 )
             )
             if progress_callback:

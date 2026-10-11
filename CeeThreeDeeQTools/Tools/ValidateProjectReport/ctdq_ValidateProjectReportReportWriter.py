@@ -69,6 +69,7 @@ class ValidateProjectReportReportWriter:
             ("ValidationSourceField", details["source_path_field"]),
             ("ValidationFilterCatergories1", details["filter_categories1"]),
             ("ValidationFilterCatergories2", details["filter_categories2"]),
+            ("ValidationFilterCatergories3", details["filter_categories3"]),
         ]
         with open(report_path, "w", encoding="utf-8") as report_file:
             report_file.write("#VALIDATIONDETAILS#\n")
@@ -76,19 +77,22 @@ class ValidateProjectReportReportWriter:
             report_file.write("\n#DATASOURCECHECK#\n")
             report_file.write(
                 "LayerName,CheckResult,LayerSource,ReferenceSource,"
-                "FilterCategory,SecondFilterCategory\n"
+                "FilterCategory,SecondFilterCategory,ThirdFilterCategory\n"
             )
             for row in html_rows:
                 report_file.write(",".join(map(str, row)) + "\n")
 
             report_file.write(
                 "\n#MISSINGVALIDATION#\n"
-                "LayerName,SourcePath,FilterCategory,SecondFilterCategory\n"
+                "LayerName,SourcePath,FilterCategory,SecondFilterCategory,"
+                "ThirdFilterCategory\n"
             )
             for layer_data in unmatched_layers.values():
                 report_file.write(
-                    f"{layer_data['original_layer_name']},{layer_data['source_path']},"
-                    f"{layer_data['category1']},{layer_data['category2']}\n"
+                    f"{layer_data['original_layer_name']},"
+                    f"{layer_data['original_source_path']},"
+                    f"{layer_data['category1']},{layer_data['category2']},"
+                    f"{layer_data['category3']}\n"
                 )
 
             report_file.write("\n#VALIDATIONSUMMARY#\n")
@@ -172,6 +176,7 @@ class ValidateProjectReportReportWriter:
                     ("Validation Source Field", details["source_path_field"]),
                     ("Validation Filter Categories 1", details["filter_categories1"]),
                     ("Validation Filter Categories 2", details["filter_categories2"]),
+                    ("Validation Filter Categories 3", details["filter_categories3"]),
                 ]
             )
             for label, value in details_html:
@@ -190,6 +195,7 @@ class ValidateProjectReportReportWriter:
                     "Reference Source",
                     "Filter Category",
                     "Second Filter Category",
+                    "Third Filter Category",
                 )
             ):
                 html_file.write(
@@ -214,7 +220,13 @@ class ValidateProjectReportReportWriter:
                 "<table id='missing-validation'><thead><tr>"
             )
             for index, heading in enumerate(
-                ("Layer Name", "Source Path", "Filter Category", "Second Filter Category")
+                (
+                    "Layer Name",
+                    "Source Path",
+                    "Filter Category",
+                    "Second Filter Category",
+                    "Third Filter Category",
+                )
             ):
                 html_file.write(
                     f"<th onclick=\"sortTable('missing-validation', {index})\">"
@@ -227,6 +239,7 @@ class ValidateProjectReportReportWriter:
                     layer_data["source_path"],
                     layer_data["category1"],
                     layer_data["category2"],
+                    layer_data["category3"],
                 )
                 html_file.write(
                     "<tr>"

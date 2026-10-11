@@ -95,6 +95,9 @@ def test_validate_project_report_default_path_uses_project_or_temp_directory(tmp
     assert ValidateProjectReportSettingsMixin.decode_cached_categories(
         "legacy one,legacy two"
     ) == ["legacy one", "legacy two"]
+    assert ValidateProjectReportDialog.cell_tooltip(
+        r"C:\data\roads.gpkg|layername=roads", is_path=True
+    ) == "roads.gpkg\nC:\\data\\roads.gpkg|layername=roads"
 
 
 def test_validate_project_report_json_restore_skips_stale_excel_settings(
@@ -276,6 +279,7 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         [
             QgsField("Layer Name", QVariant.String),
             QgsField("Source Path", QVariant.String),
+            QgsField("Region", QVariant.String),
         ]
     )
     validation_layer.updateFields()
@@ -286,13 +290,14 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
     missing_index_name = "not_loaded"
     feature = QgsFeature(validation_layer.fields())
     feature.setAttributes(
-        ["roads", target_layer.dataProvider().dataSourceUri()]
+        ["roads", target_layer.dataProvider().dataSourceUri(), "North"]
     )
     validation_layer.dataProvider().addFeature(feature)
     feature = QgsFeature(validation_layer.fields())
-    feature.setAttributes(
-        [missing_index_name, "C:/data/not_loaded.gpkg"]
-    )
+    feature.setAttributes([missing_index_name, "C:/data/not_loaded.gpkg", "North"])
+    validation_layer.dataProvider().addFeature(feature)
+    feature = QgsFeature(validation_layer.fields())
+    feature.setAttributes(["excluded_source", "C:/data/excluded.gpkg", "South"])
     validation_layer.dataProvider().addFeature(feature)
     project.addMapLayer(validation_layer)
     project.addMapLayer(target_layer)
@@ -313,6 +318,14 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         dialog.source_path_combo.setCurrentText("Source Path")
         dialog.use_filter_category_checkbox1.setChecked(False)
         dialog.use_filter_category_checkbox2.setChecked(False)
+        assert dialog.filter_group_box.layout().count() == 3
+        assert dialog.filter_category_scroll3.minimumHeight() >= 120
+        dialog.use_filter_category_checkbox3.setChecked(True)
+        dialog.filter_category_combo3.setCurrentText("Region")
+        for index in range(dialog.filter_category_layout3.count()):
+            checkbox = dialog.filter_category_layout3.itemAt(index).widget()
+            if isinstance(checkbox, QCheckBox):
+                checkbox.setChecked(checkbox.text() == "North")
         html_report_path = tmp_path / "validation.html"
         dialog.report_path_widget.setFilePath(str(html_report_path))
 
@@ -326,6 +339,16 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
             == "<< Return to Validate Report Settings"
         )
         assert dialog.data_sources_table.rowCount() == 3
+        assert dialog.data_sources_table.columnCount() == 7
+        assert dialog.missing_sources_table.columnCount() == 5
+        assert dialog.data_sources_table.isSortingEnabled()
+        assert dialog.missing_sources_table.isSortingEnabled()
+        assert dialog.data_sources_table.horizontalHeaderItem(6).text() == (
+            "Third Filter Category"
+        )
+        assert dialog.missing_sources_table.rowCount() == 1
+        assert dialog.missing_sources_table.item(0, 0).text() == missing_index_name
+        assert dialog.missing_sources_table.item(0, 4).text() == "North"
         wrong_source_row = next(
             row
             for row in range(dialog.data_sources_table.rowCount())
@@ -341,10 +364,27 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         assert dialog.missing_sources_table.item(0, 0).text() == missing_index_name
         assert dialog.fix_wrong_sources_button.text() == "Fix Wrong Source Errors (1)"
         assert dialog.fix_wrong_sources_button.isEnabled()
+        assert dialog.data_sources_table.item(wrong_source_row, 1).toolTip() == (
+            "WRONGSOURCE"
+        )
+        assert dialog.data_sources_table.item(wrong_source_row, 1).background().color().name() == (
+            "#f8d7da"
+        )
+        source_tooltip = dialog.data_sources_table.item(wrong_source_row, 2).toolTip()
+        assert len(source_tooltip.splitlines()) == 2
+        assert source_tooltip.splitlines()[1] == dialog.data_sources_table.item(
+            wrong_source_row, 2
+        ).text()
         dialog.return_to_settings_button.click()
         assert dialog.page_stack.currentWidget() is dialog.settings_page
         dialog.page_stack.setCurrentWidget(dialog.results_page)
         dialog.fix_wrong_sources_button.click()
+        wrong_source_row = next(
+            row
+            for row in range(dialog.data_sources_table.rowCount())
+            if dialog.data_sources_table.item(row, 0).text() == "roads"
+            and dialog.data_sources_table.item(row, 1).text() == "MATCHED"
+        )
         assert dialog.data_sources_table.item(wrong_source_row, 1).text() == "MATCHED"
         assert not dialog.fix_wrong_sources_button.isEnabled()
         assert wrong_source_layer.isValid()
@@ -360,6 +400,8 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         assert "ValidationSourceType=Project Layer" in report
         assert "ValidationProjectLayerName=validation rows" in report
         assert "roads,WRONGSOURCE," in report
+        assert "ThirdFilterCategory" in report
+        assert "<th onclick=\"sortTable('datasource-check', 6)\">Third Filter Category</th>" in html_report_path.read_text(encoding="utf-8")
         assert "DATASOURCES_MATCHED=1" in report
         assert project.readEntry(
             "ValidateProjectReportDialog", "report_path"
@@ -367,6 +409,12 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         assert project.readEntry(
             "ValidateProjectReportDialog", "generate_csv_report"
         ) == ("True", True)
+        assert project.readEntry(
+            "ValidateProjectReportDialog", "use_filter_category3"
+        ) == ("True", True)
+        assert project.readEntry(
+            "ValidateProjectReportDialog", "filter_categories3"
+        ) == ('["North"]', True)
     finally:
         project.removeMapLayer(validation_layer.id())
         project.removeMapLayer(target_layer.id())
@@ -443,8 +491,9 @@ def test_validate_project_report_fetches_json_and_checks_connection(
             dialog.source_mode_label.text()
             == "Validation Project Layer Index Table:"
         )
+        assert dialog.check_project_layers_button.text() == "Check Project Layers"
         assert "How to use" in dialog.intro_panel.toPlainText()
-        assert dialog.filter_group_box.layout().count() == 2
+        assert dialog.filter_group_box.layout().count() == 3
         assert dialog.filter_category_scroll1.minimumHeight() >= 120
         assert dialog.filter_category_scroll2.minimumHeight() >= 120
         assert dialog.report_path_widget.filePath().lower().endswith(".html")

@@ -1,1 +1,0 @@
-"""Data Connector tool package."""

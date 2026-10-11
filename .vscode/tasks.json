@@ -80,6 +80,12 @@
 				"pytest",
 				"--cov",
 				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Run PyQGIS 4 Checker (Dry Run)",
 			"type": "shell",
 			"command": "docker",

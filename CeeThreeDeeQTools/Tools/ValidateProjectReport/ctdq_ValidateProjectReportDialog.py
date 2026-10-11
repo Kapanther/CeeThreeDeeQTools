@@ -5,7 +5,7 @@ from qgis.core import QgsApplication, QgsProject, QgsVectorLayer
 from qgis.gui import QgsFileWidget
 import traceback  # Import traceback for detailed error information
 from qgis.PyQt.QtCore import Qt, QUrl
-from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtGui import QDesktopServices, QColor, QBrush
 import os
 import tempfile
 from qgis.gui import QgsAuthConfigSelect, QgsCollapsibleGroupBox
@@ -71,7 +71,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             "<li>Choose the layer-name and source-path fields. Enable either "
             "filter category when needed, then select the values to include.</li>"
             "<li>Set any layer-name delimiter and matching options, choose an "
-            "output path, and select <b>Create Report</b>.</li>"
+            "output path, and select <b>Check Project Layers</b>.</li>"
             "</ol>"
             "<p>For online JSON, enter the endpoint URL, optionally choose a "
             "saved QGIS authentication configuration, then use "
@@ -255,6 +255,9 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         second_filter_column = QWidget(self.filter_group_box)
         second_filter_layout = QVBoxLayout(second_filter_column)
         second_filter_layout.setContentsMargins(0, 0, 0, 0)
+        third_filter_column = QWidget(self.filter_group_box)
+        third_filter_layout = QVBoxLayout(third_filter_column)
+        third_filter_layout.setContentsMargins(0, 0, 0, 0)
 
         # First filter category
         self.use_filter_category_checkbox1 = QCheckBox("Enable First Filter Category", self)
@@ -295,8 +298,37 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self.filter_category_scroll2.setWidget(self.filter_category_widget2)
         second_filter_layout.addWidget(QLabel("Select Second Filter Categories:"))
         second_filter_layout.addWidget(self.filter_category_scroll2)
+
+        self.use_filter_category_checkbox3 = QCheckBox(
+            "Enable Third Filter Category", self
+        )
+        self.use_filter_category_checkbox3.setChecked(False)
+        self.use_filter_category_checkbox3.stateChanged.connect(
+            self.toggle_filter_category3
+        )
+        third_filter_layout.addWidget(self.use_filter_category_checkbox3)
+
+        self.filter_category_combo3 = QComboBox(self)
+        self.filter_category_combo3.currentIndexChanged.connect(
+            self.populate_filter_categories3
+        )
+        third_filter_layout.addWidget(QLabel("Third Filter Category Field:"))
+        third_filter_layout.addWidget(self.filter_category_combo3)
+
+        self.filter_category_scroll3 = QScrollArea(self)
+        self.filter_category_scroll3.setWidgetResizable(True)
+        self.filter_category_scroll3.setMinimumHeight(120)
+        self.filter_category_widget3 = QWidget()
+        self.filter_category_layout3 = QVBoxLayout(self.filter_category_widget3)
+        self.filter_category_scroll3.setWidget(self.filter_category_widget3)
+        third_filter_layout.addWidget(QLabel("Select Third Filter Categories:"))
+        third_filter_layout.addWidget(self.filter_category_scroll3)
+
         filter_layout.addWidget(first_filter_column)
         filter_layout.addWidget(second_filter_column)
+        filter_layout.addWidget(third_filter_column)
+        self.filter_category_combo3.setEnabled(False)
+        self.filter_category_scroll3.setEnabled(False)
 
         filter_group_row = QHBoxLayout()
         filter_group_row.addWidget(self.filter_group_box, 1)
@@ -370,11 +402,13 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
 
         # OK and Cancel buttons
         button_layout = QHBoxLayout()
-        ok_button = QPushButton("Create Report", self)
-        ok_button.clicked.connect(self.validate_project)
+        self.check_project_layers_button = QPushButton(
+            "Check Project Layers", self
+        )
+        self.check_project_layers_button.clicked.connect(self.validate_project)
         cancel_button = QPushButton("Exit", self)
         cancel_button.clicked.connect(self.reject)
-        button_layout.addWidget(ok_button)
+        button_layout.addWidget(self.check_project_layers_button)
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
 
@@ -435,6 +469,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 "Reference Source",
                 "Filter Category",
                 "Second Filter Category",
+                "Third Filter Category",
             ),
         )
         data_sources_layout.addWidget(self.data_sources_table)
@@ -449,6 +484,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 "Source Path",
                 "Filter Category",
                 "Second Filter Category",
+                "Third Filter Category",
             ),
         )
         missing_sources_layout.addWidget(self.missing_sources_table)
@@ -472,21 +508,58 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
 
     @staticmethod
     def set_table_rows(table, rows):
+        table.setSortingEnabled(False)
         table.setRowCount(len(rows))
+        path_columns = (
+            {2, 3}
+            if table.columnCount() == 7
+            else {1}
+            if table.columnCount() == 5
+            else set()
+        )
         for row_index, row in enumerate(rows):
             for column_index, value in enumerate(row):
-                item = QTableWidgetItem("" if value is None else str(value))
+                text = "" if value is None else str(value)
+                item = QTableWidgetItem(text)
+                item.setToolTip(
+                    ValidateProjectReportDialog.cell_tooltip(
+                        text, column_index in path_columns
+                    )
+                )
+                if table.columnCount() == 7 and column_index == 1:
+                    result_colors = {
+                        "MATCHED": QColor("#d4edda"),
+                        "WRONGSOURCE": QColor("#f8d7da"),
+                        "LAYERNAMENOTFOUND": QColor("#fff3cd"),
+                    }
+                    color = result_colors.get(text)
+                    if color is not None:
+                        item.setBackground(QBrush(color))
                 table.setItem(row_index, column_index, item)
         table.resizeRowsToContents()
+        table.setSortingEnabled(True)
+
+    @staticmethod
+    def cell_tooltip(value, is_path=False):
+        if not value:
+            return value
+        if not is_path:
+            return value
+        source_path = value.split("|", 1)[0].rstrip("/\\")
+        filename = source_path.replace("\\", "/").rsplit("/", 1)[-1]
+        if not filename:
+            filename = source_path
+        return f"{filename}\n{value}"
 
     def show_validation_results(self, html_rows, unmatched_layers, wrong_source_fixes):
         self.set_table_rows(self.data_sources_table, html_rows)
         missing_rows = [
             (
                 item["original_layer_name"],
-                item["source_path"],
+                item["original_source_path"],
                 item["category1"],
                 item["category2"],
+                item["category3"],
             )
             for item in unmatched_layers.values()
         ]
@@ -690,10 +763,12 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             self.source_path_combo,
             self.filter_category_combo1,
             self.filter_category_combo2,
+            self.filter_category_combo3,
         ):
             combo.clear()
         self.clear_filter_category_layout1()
         self.clear_filter_category_layout2()
+        self.clear_filter_category_layout3()
 
     def set_source_fields(self, fields):
         self.set_validation_selections_enabled(False)
@@ -702,6 +777,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             self.source_path_combo,
             self.filter_category_combo1,
             self.filter_category_combo2,
+            self.filter_category_combo3,
         ):
             previous_value = combo.currentText()
             signals_were_blocked = combo.blockSignals(True)
@@ -714,6 +790,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 combo.blockSignals(signals_were_blocked)
         self.populate_filter_categories1()
         self.populate_filter_categories2()
+        self.populate_filter_categories3()
         self.set_validation_selections_enabled(bool(fields))
 
     def populate_json_fields(self, force_refresh=False, show_errors=False):
@@ -858,6 +935,15 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self.filter_category_combo2.setEnabled(enabled)
         self.filter_category_scroll2.setEnabled(enabled)
         self.log_message(f"Second filter category {'enabled' if enabled else 'disabled'}.", debug=True)
+
+    def toggle_filter_category3(self, state):
+        enabled = state == Qt.CheckState.Checked
+        self.filter_category_combo3.setEnabled(enabled)
+        self.filter_category_scroll3.setEnabled(enabled)
+        self.log_message(
+            f"Third filter category {'enabled' if enabled else 'disabled'}.",
+            debug=True,
+        )
 
     def log_message(self, message, debug=False):
         """
@@ -1065,6 +1151,35 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             QMessageBox.critical(self, "Error", f"Failed to populate second filter categories: {e}")
             self.log_message(f"Error populating second filter categories: {e}")
 
+    def populate_filter_categories3(self):
+        file_path = self.excel_file_edit.text()
+        sheet_name = self.sheet_combo.currentText()
+        field_name = self.filter_category_combo3.currentText()
+        if not field_name or (
+            self.source_mode_combo.currentText() == "Excel Workbook"
+            and (not file_path or not sheet_name)
+        ) or (
+            self.source_mode_combo.currentText() == "Project Layer"
+            and self.selected_project_layer() is None
+        ):
+            self.clear_filter_category_layout3()
+            return
+
+        self.clear_filter_category_layout3()
+        try:
+            categories = self.get_filter_categories(field_name)
+            for category in sorted(categories):
+                self.filter_category_layout3.addWidget(QCheckBox(category))
+            self.log_message(
+                f"Third filter categories populated: {', '.join(categories)}",
+                debug=True,
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Error", f"Failed to populate third filter categories: {exc}"
+            )
+            self.log_message(f"Error populating third filter categories: {exc}")
+
     def get_filter_categories(self, field_name):
         categories = set()
         for value in self.iter_selected_field_values(field_name):
@@ -1110,6 +1225,18 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self.filter_category_widget2.update()  # Force the parent widget to update
         self.log_message("Second filter category layout cleared.", debug=True)
 
+    def clear_filter_category_layout3(self):
+        for index in reversed(range(self.filter_category_layout3.count())):
+            item = self.filter_category_layout3.itemAt(index)
+            widget = item.widget()
+            if widget:
+                self.filter_category_layout3.removeWidget(widget)
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+        self.filter_category_layout3.update()
+        self.filter_category_widget3.update()
+
     def normalize_path(self, path, case_sensitive):
         return ValidateProjectReportLogic.normalize_path(path, case_sensitive)
 
@@ -1146,6 +1273,26 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
             "filter_categories2",
             self.encode_cached_categories(selected_categories2),
         )
+        self.save_cached_value(
+            "use_filter_category3",
+            str(self.use_filter_category_checkbox3.isChecked()),
+        )
+        self.save_cached_value(
+            "filter_category_field3", self.filter_category_combo3.currentText()
+        )
+        selected_categories3 = [
+            checkbox.text()
+            for index in range(self.filter_category_layout3.count())
+            if isinstance(
+                (checkbox := self.filter_category_layout3.itemAt(index).widget()),
+                QCheckBox,
+            )
+            and checkbox.isChecked()
+        ]
+        self.save_cached_value(
+            "filter_categories3",
+            self.encode_cached_categories(selected_categories3),
+        )
 
         self.save_cached_value("layer_name_delimiter", self.layer_name_delimiter_edit.text())
         self.save_cached_value("case_sensitive_matching", str(self.case_sensitive_checkbox.isChecked()))
@@ -1171,6 +1318,8 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         use_filter1_category = self.use_filter_category_checkbox1.isChecked()
         use_filter2_category = self.use_filter_category_checkbox2.isChecked()
         filter_category_field2 = self.filter_category_combo2.currentText()
+        use_filter3_category = self.use_filter_category_checkbox3.isChecked()
+        filter_category_field3 = self.filter_category_combo3.currentText()
 
         if source_mode == "Excel Workbook":
             missing_source = not excel_file or not sheet_name
@@ -1196,6 +1345,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     or source_path_field not in headers
                     or (use_filter1_category and filter_category_field1 not in headers)
                     or (use_filter2_category and filter_category_field2 not in headers)
+                    or (use_filter3_category and filter_category_field3 not in headers)
                 ):
                     raise ValueError("Selected fields not found in the header row.")
 
@@ -1203,12 +1353,14 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 source_path_col = headers[source_path_field]
                 filter_category_col1 = headers[filter_category_field1] if use_filter1_category else None
                 filter_category_col2 = headers[filter_category_field2] if use_filter2_category else None
+                filter_category_col3 = headers[filter_category_field3] if use_filter3_category else None
                 source_rows = (
                     (
                         row[layer_name_col].value,
                         row[source_path_col].value,
                         row[filter_category_col1].value if use_filter1_category else None,
                         row[filter_category_col2].value if use_filter2_category else None,
+                        row[filter_category_col3].value if use_filter3_category else None,
                     )
                     for row in sheet.iter_rows(
                         min_row=header_row + 1,
@@ -1224,6 +1376,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     or source_path_field not in layer_fields
                     or (use_filter1_category and filter_category_field1 not in layer_fields)
                     or (use_filter2_category and filter_category_field2 not in layer_fields)
+                    or (use_filter3_category and filter_category_field3 not in layer_fields)
                 ):
                     raise ValueError("Selected fields not found in the project layer.")
                 source_rows = (
@@ -1232,6 +1385,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                         feature[source_path_field],
                         feature[filter_category_field1] if use_filter1_category else None,
                         feature[filter_category_field2] if use_filter2_category else None,
+                        feature[filter_category_field3] if use_filter3_category else None,
                     )
                     for feature in validation_layer.getFeatures()
                 )
@@ -1247,6 +1401,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     or source_path_field not in json_fields
                     or (use_filter1_category and filter_category_field1 not in json_fields)
                     or (use_filter2_category and filter_category_field2 not in json_fields)
+                    or (use_filter3_category and filter_category_field3 not in json_fields)
                 ):
                     raise ValueError("Selected fields not found in the JSON response.")
                 source_rows = (
@@ -1255,6 +1410,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                         record.get(source_path_field),
                         record.get(filter_category_field1) if use_filter1_category else None,
                         record.get(filter_category_field2) if use_filter2_category else None,
+                        record.get(filter_category_field3) if use_filter3_category else None,
                     )
                     for record in records
                 )
@@ -1265,6 +1421,8 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 selected_categories1,
                 use_filter2_category,
                 selected_categories2,
+                use_filter3_category,
+                selected_categories3,
                 case_sensitive_matching,
             )
 
@@ -1322,6 +1480,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 validation_json_auth_config_id = self.json_auth_config_select.configId()
             validation_filter_categories1 = ";".join(selected_categories1)
             validation_filter_categories2 = ";".join(selected_categories2)
+            validation_filter_categories3 = ";".join(selected_categories3)
 
             report_details = {
                 "report_date": report_date,
@@ -1339,6 +1498,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 "source_path_field": source_path_field,
                 "filter_categories1": validation_filter_categories1,
                 "filter_categories2": validation_filter_categories2,
+                "filter_categories3": validation_filter_categories3,
             }
             html_report_path, csv_report_path = ValidateProjectReportReportWriter.write_reports(
                 report_path,

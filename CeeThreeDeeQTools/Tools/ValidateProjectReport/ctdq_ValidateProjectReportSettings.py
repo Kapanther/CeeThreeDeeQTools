@@ -143,6 +143,35 @@ class ValidateProjectReportSettingsMixin:
                 ):
                     checkbox.setChecked(True)
 
+        use_filter_category3 = (
+            self.get_cached_value("use_filter_category3", "False") == "True"
+        )
+        self.use_filter_category_checkbox3.setChecked(use_filter_category3)
+        cached_filter_field3 = self.get_cached_value("filter_category_field3", "")
+        if (
+            use_filter_category3
+            and cached_filter_field3
+            and cached_filter_field3
+            in [
+                self.filter_category_combo3.itemText(index)
+                for index in range(self.filter_category_combo3.count())
+            ]
+        ):
+            self.filter_category_combo3.setCurrentText(cached_filter_field3)
+            self.populate_filter_categories3()
+            cached_categories3 = self.decode_cached_categories(
+                self.get_cached_value("filter_categories3", "")
+            )
+            for index in range(self.filter_category_layout3.count()):
+                checkbox = self.filter_category_layout3.itemAt(index).widget()
+                if (
+                    isinstance(checkbox, QCheckBox)
+                    and checkbox.text() in cached_categories3
+                ):
+                    checkbox.setChecked(True)
+        elif not use_filter_category3:
+            self.clear_filter_category_layout3()
+
     def restore_other_cached_settings(self):
         cached_report_path = self.get_cached_value("report_path", "")
         if cached_report_path:
