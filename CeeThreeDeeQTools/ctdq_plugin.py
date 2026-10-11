@@ -116,9 +116,16 @@ class CTDQPlugin(object):
             self.menu = QMenu(self.tr("CeeThreeDee Qtools"), self.iface.mainWindow())
             self.iface.mainWindow().menuBar().addMenu(self.menu)
 
+        self.menu.setIcon(
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png"))
+        )
+
         # Create action for the validation dialog
         self.validateAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(
+                os.path.dirname(__file__),
+                "./Assets/img/ctdq_ValidateProjectReport_Icon.svg",
+            )),
             self.tr("Validate Project Report"),
             self.iface.mainWindow(),
         )
@@ -127,7 +134,7 @@ class CTDQPlugin(object):
 
         # Create action for the Mirror Project tool
         self.mirrorProjectAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_mirrorProject_icon.svg")),
             self.tr("Mirror Project"),
             self.iface.mainWindow(),
         )
@@ -136,7 +143,7 @@ class CTDQPlugin(object):
 
         # Create action for the Package Layer Updater tool
         self.packageLayerUpdaterAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_packageLayerUpdater_icon.svg")),
             self.tr("Package Layer Updater"),
             self.iface.mainWindow(),
         )
@@ -145,7 +152,7 @@ class CTDQPlugin(object):
 
         # Create action for the LandXML Import tool
         self.landXMLImportAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_LandXMLImport_icon.svg")),
             self.tr("LandXML Import"),
             self.iface.mainWindow(),
         )
@@ -154,7 +161,7 @@ class CTDQPlugin(object):
 
         # Create action for the Layers Advanced dock widget
         self.layersAdvancedAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_LayersAdvanced.svg")),
             self.tr("Layers Advanced"),
             self.iface.mainWindow(),
         )
@@ -164,7 +171,7 @@ class CTDQPlugin(object):
 
         # Create action for the Data Connector dock widget
         self.dataConnectorAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_dataConnector_icon.svg")),
             self.tr("Data Connector"),
             self.iface.mainWindow(),
         )
@@ -178,7 +185,7 @@ class CTDQPlugin(object):
 
         # Create action that will start plugin help
         self.helpAction = QAction(
-            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/CTD_logo.png")),
+            QIcon(os.path.join(os.path.dirname(__file__), "./Assets/img/ctdq_Help_icon.svg")),
             self.tr("CeeThreeDee Qtools Help"),
             self.iface.mainWindow(),
         )
