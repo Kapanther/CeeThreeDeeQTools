@@ -1,7 +1,7 @@
-from qgis.PyQt.QtWidgets import QAbstractItemView, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget, QTabWidget
+from qgis.PyQt.QtWidgets import QAbstractItemView, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog, QMessageBox, QTextEdit, QSpinBox, QScrollArea, QWidget, QCheckBox, QGroupBox, QToolButton, QFrame, QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget, QTabWidget, QMenu
 import openpyxl
 from openpyxl import load_workbook
-from qgis.core import QgsApplication, QgsProject, QgsVectorLayer
+from qgis.core import Qgis, QgsApplication, QgsProject, QgsRasterLayer, QgsVectorLayer
 from qgis.gui import QgsFileWidget
 import traceback  # Import traceback for detailed error information
 from qgis.PyQt.QtCore import Qt, QUrl
@@ -34,13 +34,14 @@ class CustomTextBrowser(QTextBrowser):
             super().setSource(url, type)
 
 class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, iface=None):
         super().__init__(parent)
         self.setWindowTitle("Validate Project Report")
         self.setMinimumWidth(850)
 
         # Load cached selections from QGIS project variables
         self.project = QgsProject.instance()
+        self.iface = iface
         self.cache_prefix = "ValidateProjectReportDialog"
         self._json_records_cache_key = None
         self._json_records_cache = []
@@ -472,6 +473,9 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                 "Third Filter Category",
             ),
         )
+        self.data_sources_table.customContextMenuRequested.connect(
+            self.data_sources_context_menu
+        )
         data_sources_layout.addWidget(self.data_sources_table)
         self.results_tabs.addTab(data_sources_tab, "Data Sources")
 
@@ -498,8 +502,11 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         table.setAlternatingRowColors(True)
         table.setWordWrap(False)
+        table.setSortingEnabled(True)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
@@ -507,7 +514,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         return table
 
     @staticmethod
-    def set_table_rows(table, rows):
+    def set_table_rows(table, rows, layer_ids=None):
         table.setSortingEnabled(False)
         table.setRowCount(len(rows))
         path_columns = (
@@ -536,6 +543,10 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     if color is not None:
                         item.setBackground(QBrush(color))
                 table.setItem(row_index, column_index, item)
+            if layer_ids is not None:
+                table.item(row_index, 0).setData(
+                    Qt.ItemDataRole.UserRole, layer_ids[row_index]
+                )
         table.resizeRowsToContents()
         table.setSortingEnabled(True)
 
@@ -552,7 +563,9 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         return f"{filename}\n{value}"
 
     def show_validation_results(self, html_rows, unmatched_layers, wrong_source_fixes):
-        self.set_table_rows(self.data_sources_table, html_rows)
+        visible_rows = [row[:7] for row in html_rows]
+        layer_ids = [row[7] for row in html_rows]
+        self.set_table_rows(self.data_sources_table, visible_rows, layer_ids)
         missing_rows = [
             (
                 item["original_layer_name"],
@@ -572,13 +585,133 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self.fix_wrong_sources_button.setEnabled(fix_count > 0)
         self.page_stack.setCurrentWidget(self.results_page)
 
+    def selected_data_source_layers(self):
+        rows = sorted({index.row() for index in self.data_sources_table.selectedIndexes()})
+        return [
+            (
+                row,
+                self.project.mapLayer(
+                    self.data_sources_table.item(row, 0).data(
+                        Qt.ItemDataRole.UserRole
+                    )
+                ),
+            )
+            for row in rows
+        ]
+
+    def possible_fixes_for_layers(self, selected_layers):
+        fixes_by_id = {layer.id(): (layer, source) for layer, source in self._wrong_source_fixes}
+        return [
+            fixes_by_id[layer.id()]
+            for _row, layer in selected_layers
+            if layer is not None and layer.id() in fixes_by_id
+        ]
+
+    def build_data_sources_context_menu(self):
+        selected_layers = self.selected_data_source_layers()
+        if not selected_layers:
+            return
+        fixes = self.possible_fixes_for_layers(selected_layers)
+        menu = QMenu(self.data_sources_table)
+        if len(selected_layers) == 1:
+            change_action = menu.addAction("Change Data Source")
+            change_action.setEnabled(
+                selected_layers[0][1] is not None and self.iface is not None
+            )
+            change_action.triggered.connect(
+                lambda _checked=False: self.change_selected_data_source(
+                    selected_layers[0][1]
+                )
+            )
+            menu.addSeparator()
+            fix_action = menu.addAction("Fix Data Source")
+            fix_action.setEnabled(bool(fixes))
+        else:
+            fix_action = menu.addAction(f"Fix Data Source ({len(fixes)})")
+            fix_action.setEnabled(bool(fixes))
+        if fixes:
+            fix_action.triggered.connect(
+                lambda _checked=False: self.fix_data_source_rows(fixes)
+            )
+        return menu
+
+    def data_sources_context_menu(self, position):
+        clicked_index = self.data_sources_table.indexAt(position)
+        if clicked_index.isValid():
+            clicked_item = self.data_sources_table.item(
+                clicked_index.row(), clicked_index.column()
+            )
+            if clicked_item not in self.data_sources_table.selectedItems():
+                self.data_sources_table.clearSelection()
+                self.data_sources_table.selectRow(clicked_index.row())
+        menu = self.build_data_sources_context_menu()
+        if menu is not None:
+            menu.exec(self.data_sources_table.viewport().mapToGlobal(position))
+
+    def change_selected_data_source(self, layer):
+        if layer is None or self.iface is None:
+            return
+        from qgis.gui import QgsDataSourceSelectDialog
+
+        if isinstance(layer, QgsRasterLayer):
+            layer_type = Qgis.LayerType.Raster
+        else:
+            layer_type = Qgis.LayerType.Vector
+        parent = self.iface.mainWindow()
+        dialog = QgsDataSourceSelectDialog(None, True, layer_type, parent)
+        dialog.setWindowTitle(f"Change Data Source - {layer.name()}")
+        dialog.setDescription(f"Current source: {layer.source()}")
+        current_source = layer.source().split("|", 1)[0]
+        if os.path.isfile(current_source):
+            dialog.expandPath(os.path.dirname(current_source))
+        if not dialog.exec():
+            return
+        uri = dialog.uri()
+        if uri is None or not uri.uri:
+            return
+        provider_key = uri.providerKey or layer.providerType()
+        layer.setDataSource(uri.uri, layer.name(), provider_key)
+        layer.reload()
+        layer.triggerRepaint()
+        self.iface.mapCanvas().refresh()
+        self.validate_project()
+
+    def fix_data_source_rows(self, fixes):
+        if fixes:
+            fixed_count, failures = self._apply_source_fixes(fixes)
+            self.validate_project()
+            if failures:
+                QMessageBox.warning(
+                    self,
+                    "Source Fix Results",
+                    f"Fixed {fixed_count} layer(s). Some sources could not be fixed:\n\n"
+                    + "\n".join(failures),
+                )
+
     def fix_wrong_source_errors(self):
         if not self._wrong_source_fixes:
             return
 
+        fixed_count, failures = self._apply_source_fixes(self._wrong_source_fixes)
+        self.validate_project()
+        if failures:
+            QMessageBox.warning(
+                self,
+                "Source Fix Results",
+                f"Fixed {fixed_count} layer(s). Some sources could not be fixed:\n\n"
+                + "\n".join(failures),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Source Fix Results",
+                f"Fixed {fixed_count} layer(s). The report and results have been updated.",
+            )
+
+    def _apply_source_fixes(self, fixes):
         fixed_count = 0
         failures = []
-        for layer, reference_source in self._wrong_source_fixes:
+        for layer, reference_source in fixes:
             previous_source = layer.dataProvider().dataSourceUri()
             try:
                 layer.setDataSource(
@@ -609,21 +742,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
                     )
                 else:
                     failures.append(f"{layer.name()}: {exc}")
-
-        self.validate_project()
-        if failures:
-            QMessageBox.warning(
-                self,
-                "Source Fix Results",
-                f"Fixed {fixed_count} layer(s). Some sources could not be fixed:\n\n"
-                + "\n".join(failures),
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Source Fix Results",
-                f"Fixed {fixed_count} layer(s). The report and results have been updated.",
-            )
+        return fixed_count, failures
 
     def create_info_button(self, tooltip):
         button = QToolButton(self)
@@ -772,6 +891,20 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
 
     def set_source_fields(self, fields):
         self.set_validation_selections_enabled(False)
+        previous_filters = {
+            1: (
+                self.filter_category_combo1.currentText(),
+                self.checked_filter_categories(self.filter_category_layout1),
+            ),
+            2: (
+                self.filter_category_combo2.currentText(),
+                self.checked_filter_categories(self.filter_category_layout2),
+            ),
+            3: (
+                self.filter_category_combo3.currentText(),
+                self.checked_filter_categories(self.filter_category_layout3),
+            ),
+        }
         for combo in (
             self.layer_name_combo,
             self.source_path_combo,
@@ -791,7 +924,32 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         self.populate_filter_categories1()
         self.populate_filter_categories2()
         self.populate_filter_categories3()
+        for index, layout in (
+            (1, self.filter_category_layout1),
+            (2, self.filter_category_layout2),
+            (3, self.filter_category_layout3),
+        ):
+            previous_field, selected_categories = previous_filters[index]
+            combo = getattr(self, f"filter_category_combo{index}")
+            if combo.currentText() == previous_field:
+                self.restore_filter_categories(layout, selected_categories)
         self.set_validation_selections_enabled(bool(fields))
+
+    @staticmethod
+    def checked_filter_categories(layout):
+        return {
+            widget.text()
+            for index in range(layout.count())
+            if isinstance((widget := layout.itemAt(index).widget()), QCheckBox)
+            and widget.isChecked()
+        }
+
+    @staticmethod
+    def restore_filter_categories(layout, selected_categories):
+        for index in range(layout.count()):
+            widget = layout.itemAt(index).widget()
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(widget.text() in selected_categories)
 
     def populate_json_fields(self, force_refresh=False, show_errors=False):
         if not self.json_url_edit.text().strip():
@@ -869,6 +1027,7 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         )
 
         table = QTableWidget(len(records), len(fields), preview_dialog)
+        table.setSortingEnabled(False)
         table.setHorizontalHeaderLabels(fields)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -888,6 +1047,8 @@ class ValidateProjectReportDialog(ValidateProjectReportSettingsMixin, QDialog):
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
+        table.horizontalHeader().setSectionsClickable(True)
+        table.setSortingEnabled(True)
         preview_layout.addWidget(table)
 
         close_button = QPushButton("Close", preview_dialog)

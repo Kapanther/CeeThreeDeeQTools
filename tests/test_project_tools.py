@@ -375,10 +375,28 @@ def test_validate_project_report_generates_report_from_geometryless_layer(
         assert source_tooltip.splitlines()[1] == dialog.data_sources_table.item(
             wrong_source_row, 2
         ).text()
+        dialog.data_sources_table.selectRow(wrong_source_row)
+        single_menu = dialog.build_data_sources_context_menu()
+        single_actions = {
+            action.text(): action for action in single_menu.actions()
+        }
+        assert "Change Data Source" in single_actions
+        assert not single_actions["Change Data Source"].isEnabled()
+        assert single_actions["Fix Data Source"].isEnabled()
+
+        dialog.data_sources_table.clearSelection()
+        dialog.data_sources_table.selectAll()
+        multi_menu = dialog.build_data_sources_context_menu()
+        multi_actions = {
+            action.text(): action
+            for action in multi_menu.actions()
+            if not action.isSeparator()
+        }
+        assert list(multi_actions) == ["Fix Data Source (1)"]
+        assert multi_actions["Fix Data Source (1)"].isEnabled()
         dialog.return_to_settings_button.click()
         assert dialog.page_stack.currentWidget() is dialog.settings_page
-        dialog.page_stack.setCurrentWidget(dialog.results_page)
-        dialog.fix_wrong_sources_button.click()
+        multi_actions["Fix Data Source (1)"].trigger()
         wrong_source_row = next(
             row
             for row in range(dialog.data_sources_table.rowCount())
@@ -513,6 +531,12 @@ def test_validate_project_report_fetches_json_and_checks_connection(
         dialog.check_json_connection()
         assert dialog.layer_name_combo.isEnabled()
         assert dialog.json_preview_button.isEnabled()
+        dialog.filter_category_combo1.setCurrentText("Layer Name")
+        category_checkbox = dialog.filter_category_widget1.findChild(QCheckBox)
+        assert category_checkbox.text() == "roads"
+        category_checkbox.setChecked(True)
+        dialog.check_json_connection()
+        assert dialog.filter_category_widget1.findChild(QCheckBox).isChecked()
         preview_dialogs = []
 
         def capture_preview(preview_dialog):
@@ -522,6 +546,8 @@ def test_validate_project_report_fetches_json_and_checks_connection(
         monkeypatch.setattr(QDialog, "exec", capture_preview)
         dialog.json_preview_button.click()
         preview_table = preview_dialogs[0].findChild(QTableWidget)
+        assert preview_table.isSortingEnabled()
+        assert dialog.filter_category_widget1.findChild(QCheckBox).isChecked()
         assert preview_table.columnCount() == 2
         assert preview_table.horizontalHeaderItem(0).text() == "Layer Name"
         assert preview_table.horizontalHeaderItem(1).text() == "Source Path"

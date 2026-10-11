@@ -191,7 +191,9 @@ class CTDQPlugin(object):
 
     def openValidationDialog(self):
         from .Tools.ValidateProjectReport.ctdq_ValidateProjectReportDialog import ValidateProjectReportDialog
-        dialog = ValidateProjectReportDialog()
+        dialog = ValidateProjectReportDialog(
+            self.iface.mainWindow(), iface=self.iface
+        )
         dialog.exec()
 
     def openMirrorProjectDialog(self):

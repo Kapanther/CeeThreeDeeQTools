@@ -170,6 +170,7 @@ class ValidateProjectReportLogic:
                     category1,
                     category2,
                     category3,
+                    layer.id(),
                 )
             )
             if progress_callback:

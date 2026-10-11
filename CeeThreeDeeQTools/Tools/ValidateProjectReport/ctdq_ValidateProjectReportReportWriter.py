@@ -80,7 +80,7 @@ class ValidateProjectReportReportWriter:
                 "FilterCategory,SecondFilterCategory,ThirdFilterCategory\n"
             )
             for row in html_rows:
-                report_file.write(",".join(map(str, row)) + "\n")
+                report_file.write(",".join(map(str, row[:7])) + "\n")
 
             report_file.write(
                 "\n#MISSINGVALIDATION#\n"
@@ -212,7 +212,9 @@ class ValidateProjectReportReportWriter:
                 html_file.write(
                     f"<tr><td>{escape(str(row[0]))}</td>"
                     f"<td class='{result_class}'>{escape(str(row[1]))}</td>"
-                    + "".join(f"<td>{escape(str(value))}</td>" for value in row[2:])
+                    + "".join(
+                        f"<td>{escape(str(value))}</td>" for value in row[2:7]
+                    )
                     + "</tr>"
                 )
             html_file.write("</tbody></table><h2>Missing Validation Layers</h2>")
