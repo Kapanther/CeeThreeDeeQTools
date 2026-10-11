@@ -1,0 +1,8 @@
+- updated logos for all tools
+- fixed validation project tool to support project layers or Json sources
+- updated validation project tool to allow fixes in tool
+- added new validation report view after running validate project
+- fixed styles for slopes on landxml import tool
+- landxml import now supports featurelines / pipe networks / corridors (sections/featurelines) / parcels
+- fixed landxml import stylings for slopes.
+- detailed unit tests now added to all tools to validate code quality

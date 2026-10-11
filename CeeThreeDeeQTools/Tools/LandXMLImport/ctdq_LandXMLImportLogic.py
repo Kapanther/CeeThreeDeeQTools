@@ -481,8 +481,10 @@ class LandXMLImportLogic:
             vertices = LandXMLImportLogic._transform_3d_points(
                 parcel['points'], transform)
             feature = QgsFeature(fields)
-            feature.setGeometry(QgsGeometry.fromPolygon(
-                [[QgsPoint(x, y, z) for x, y, z in vertices]]))
+            coordinates = ', '.join(
+                '{0} {1} {2}'.format(x, y, z) for x, y, z in vertices)
+            feature.setGeometry(QgsGeometry.fromWkt(
+                'POLYGON Z (({0}))'.format(coordinates)))
             feature.setAttributes([
                 parcel['name'], parcel['description'], parcel['area'],
                 len(vertices), source_name,
